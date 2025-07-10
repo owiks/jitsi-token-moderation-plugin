@@ -70,3 +70,4 @@ module:hook("muc-occupant-joined", function (event)
         origin   = event.occupant.origin,
         stanza   = event.stanza
     }
+end, 10)
