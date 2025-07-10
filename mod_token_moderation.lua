@@ -4,7 +4,7 @@ local json = require "cjson";
 local basexx = require "basexx";
 local os_time = require "util.time".now;
 
-log('info', 'Loaded token moderation plugin v13 (Cache & Enforce)');
+log('info', 'Loaded token moderation plugin v14 (Corrected Cache Logic)');
 
 function setupAffiliation(room, origin, jid)
     jid = jid_bare(jid);
@@ -53,7 +53,7 @@ end
 
 module:hook("muc-room-created", function(event)
     local room = event.room;
-    log('info', 'Room created: %s — enabling token moderation logic v13', room.jid);
+    log('info', 'Room created: %s — enabling token moderation logic v14', room.jid);
 
     local _handle_first_presence = room.handle_first_presence;
     room.handle_first_presence = function(thisRoom, origin, stanza)
@@ -100,6 +100,10 @@ module:hook("muc-room-created", function(event)
         if is_moderator_cached == false and affiliation == "owner" then
             log('warn', '[SECURITY-BLOCK] Blocked external attempt by %s to promote a non-moderator: %s', actor_str, jid);
             return nil, "modify", "not-acceptable";
+        end
+        
+        if is_moderator_cached == nil then
+            log('warn', '[GUARD] Cache not ready for %s. Permitting action for stability.', jid);
         end
 
         log('info', '[PASS-THROUGH] Permitting safe action by %s', actor_str);
