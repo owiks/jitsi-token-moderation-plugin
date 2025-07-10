@@ -77,10 +77,8 @@ function setupAffiliation(room, origin, stanza)
     local raw_json = json.encode(decoded);
     log('info', '[%s] Decoded JWT body: %s', jid, raw_json);
 
-    local moderator_flag = false;
-    if decoded.context and decoded.context.user and decoded.context.user.moderator == true then
-        moderator_flag = true;
-    end
+    local moderator_flag = (decoded.context and decoded.context.user and decoded.context.user.moderator == true) or (decoded.moderator == true);
+
 
     log('info', '[%s] moderator flag = %s', jid, tostring(moderator_flag));
 
