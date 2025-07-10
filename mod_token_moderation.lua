@@ -54,11 +54,9 @@ end
 
 module:hook("muc-room-created", function(event)
     local room = event.room;
-    local occupant = event.occupant;
-    local occupant_jid = occupant.bare_jid;
-    log('info', 'Occupant %s', occupant_jid)
-    local aff = room:get_affiliation(occupant_jid);
-    log('info', 'Aff %s', aff)
+    for k, v in pairs(event) do
+        log('info', 'event[%s] = %s', tostring(k), tostring(v));
+    end
 
     log('info', 'Room created: %s — enabling token moderation logic v14', room.jid);
 
