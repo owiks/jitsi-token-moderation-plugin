@@ -44,7 +44,7 @@ function setupAffiliation(room, origin, stanza)
     log('info', '[%s] Starting affiliation setup', jid);
 
     if not origin.auth_token then
-        log('debug', '[%s] No auth_token found in session', jid);
+        log('info', '[%s] No auth_token found in session', jid);
         return;
     end
 
