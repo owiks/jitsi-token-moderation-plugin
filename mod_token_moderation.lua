@@ -26,17 +26,32 @@ module:hook("muc-room-created", function(event)
 
     local _set_affiliation = room.set_affiliation;
     room.set_affiliation = function(room, actor, jid, affiliation, reason)
-        log('info', 'set_affiliation called: actor=%s jid=%s affiliation=%s', tostring(actor), tostring(jid), tostring(affiliation));
+        local actor_str = tostring(actor)
+        log('info', 'set_affiliation called: actor=%s jid=%s affiliation=%s', actor_str, jid, affiliation);
+
         if actor == "token_plugin" then
             log('info', 'Setting affiliation via token_plugin: %s → %s', jid, affiliation);
             return _set_affiliation(room, true, jid, affiliation, reason);
-        elseif affiliation == "owner" then
+        end
+
+        if actor_str:match("^focus@") then
+            log('debug', 'Allowing focus to change affiliation for %s', jid);
+            return _set_affiliation(room, actor, jid, affiliation, reason);
+        end
+
+        if affiliation == "owner" then
             log('warn', 'Blocked external attempt to assign owner to %s', jid);
             return nil, "modify", "not-acceptable";
-        else
-            return _set_affiliation(room, actor, jid, affiliation, reason);
-        end;
-    end;
+        end
+
+        local current_affiliation = room:get_affiliation(jid);
+        if current_affiliation == "owner" and affiliation ~= "owner" then
+            log('warn', 'Blocked external attempt to change affiliation from owner → %s for %s', affiliation, jid);
+            return nil, "modify", "not-acceptable";
+        end
+
+        return _set_affiliation(room, actor, jid, affiliation, reason);
+    end
 end);
 
 function setupAffiliation(room, origin, stanza)
@@ -77,7 +92,8 @@ function setupAffiliation(room, origin, stanza)
     local raw_json = json.encode(decoded);
     log('info', '[%s] Decoded JWT body: %s', jid, raw_json);
 
-    local moderator_flag = (decoded.context and decoded.context.user and decoded.context.user.moderator == true) or (decoded.moderator == true);
+    local moderator_flag = (decoded.context and decoded.context.user and decoded.context.user.moderator == true) or
+    (decoded.moderator == true);
 
 
     log('info', '[%s] moderator flag = %s', jid, tostring(moderator_flag));
