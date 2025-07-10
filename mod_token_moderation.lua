@@ -77,7 +77,14 @@ function setupAffiliation(room, origin, stanza)
     local raw_json = json.encode(decoded);
     log('debug', '[%s] Decoded JWT body: %s', jid, raw_json);
 
-    if decoded["moderator"] == true then
+    local moderator_flag = false;
+    if decoded.context and decoded.context.user and decoded.context.user.moderator == true then
+        moderator_flag = true;
+    end
+
+    log('info', '[%s] moderator flag = %s', jid, tostring(moderator_flag));
+
+    if moderator_flag then
         log('info', '[%s] moderator=true — assigning owner', jid);
         room:set_affiliation("token_plugin", jid, "owner");
     else
