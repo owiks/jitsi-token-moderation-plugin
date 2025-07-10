@@ -99,7 +99,7 @@ module:hook("muc-room-created", function(event)
                 return
             end
 
-            if aff_name == "owner" then
+            if aff_name and aff_name == "owner" then
                 hasOwnerAff = true
             end
         end
