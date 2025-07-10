@@ -68,6 +68,9 @@ module:hook("muc-room-created", function(event)
 
         log('info', 'thisRoom %s', tostring(thisRoom))
         log('info', 'origin %s', tostring(origin))
+        log('info', 'is_moderator %s', tostring(origin.is_moderator))
+        log('info', 'is_moderator_cached %s', tostring(origin.is_moderator_cached))
+        log('info', 'stanza %s', tostring(stanza))
         log('info', 'stanza %s', tostring(stanza))
         local pres = _handle_first_presence(thisRoom, origin, stanza);
         setupAffiliation(thisRoom, origin, stanza.attr.from);
@@ -89,12 +92,19 @@ module:hook("muc-room-created", function(event)
         log('info', '--> set_affiliation: jid=%s, new_role=%s, actor=%s, current_role=%s', jid, affiliation, actor_str,
             tostring(current_affiliation));
 
+        local occupant = room.occupants and room.occupants[jid_bare(jid)];
+        log('info', 'occupant %s', tostring(occupant))
+        local is_moderator_cached = (occupant and occupant.origin and occupant.origin.is_moderator);
+        log('info', 'is_moderator_cached %d', tonumber(is_moderator_cached))
+
+        if affiliation == "owner" and current_affiliation == "member" and is_moderator_cached then
+            return false;
+        end
+
         if actor == "token_plugin" then
             return _set_affiliation(room, actor, jid, affiliation, reason);
         end
 
-        local occupant = room.occupants and room.occupants[jid_bare(jid)];
-        local is_moderator_cached = (occupant and occupant.origin and occupant.origin.is_moderator);
 
         if actor_str:match("^focus@") and affiliation == "owner" then
             log('warn', '[FOCUS-HANDLER] Jicofo promotes user. Allowing temporarily.', jid);
