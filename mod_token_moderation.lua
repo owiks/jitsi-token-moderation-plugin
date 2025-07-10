@@ -26,9 +26,9 @@ module:hook("muc-room-created", function(event)
 
     local _set_affiliation = room.set_affiliation;
     room.set_affiliation = function(room, actor, jid, affiliation, reason)
-        log('debug', 'set_affiliation called: actor=%s jid=%s affiliation=%s', tostring(actor), tostring(jid), tostring(affiliation));
+        log('info', 'set_affiliation called: actor=%s jid=%s affiliation=%s', tostring(actor), tostring(jid), tostring(affiliation));
         if actor == "token_plugin" then
-            log('debug', 'Setting affiliation via token_plugin: %s → %s', jid, affiliation);
+            log('info', 'Setting affiliation via token_plugin: %s → %s', jid, affiliation);
             return _set_affiliation(room, true, jid, affiliation, reason);
         elseif affiliation == "owner" then
             log('warn', 'Blocked external attempt to assign owner to %s', jid);
@@ -41,14 +41,14 @@ end);
 
 function setupAffiliation(room, origin, stanza)
     local jid = jid_bare(stanza.attr.from);
-    log('debug', '[%s] Starting affiliation setup', jid);
+    log('info', '[%s] Starting affiliation setup', jid);
 
     if not origin.auth_token then
         log('debug', '[%s] No auth_token found in session', jid);
         return;
     end
 
-    log('debug', '[%s] JWT token: %s', jid, origin.auth_token);
+    log('info', '[%s] JWT token: %s', jid, origin.auth_token);
 
     local dotFirst = origin.auth_token:find("%.");
     if not dotFirst then
@@ -63,7 +63,7 @@ function setupAffiliation(room, origin, stanza)
     end
 
     local bodyB64 = origin.auth_token:sub(dotFirst + 1, dotFirst + dotSecond - 1);
-    log('debug', '[%s] Encoded JWT body (base64url): %s', jid, bodyB64);
+    log('info', '[%s] Encoded JWT body (base64url): %s', jid, bodyB64);
 
     local success, decoded = pcall(function()
         return json.decode(basexx.from_url64(bodyB64));
@@ -75,7 +75,7 @@ function setupAffiliation(room, origin, stanza)
     end
 
     local raw_json = json.encode(decoded);
-    log('debug', '[%s] Decoded JWT body: %s', jid, raw_json);
+    log('info', '[%s] Decoded JWT body: %s', jid, raw_json);
 
     local moderator_flag = false;
     if decoded.context and decoded.context.user and decoded.context.user.moderator == true then
