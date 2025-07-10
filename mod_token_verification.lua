@@ -56,7 +56,6 @@ local function verify_user(session, stanza)
 
     if DEBUG then
         module:log("info", "Verifying user: %s room: %s", tostring(user_jid), tostring(stanza.attr.to));
-        module:log("info", "JWT token: %s", tostring(session.auth_token));
     end
 
     if is_admin(user_jid) then
@@ -80,7 +79,6 @@ local function verify_user(session, stanza)
         return false;
     end
 
-    if DEBUG then module:log("info", "Token verified for: %s", user_jid); end
     return true;
 end
 
