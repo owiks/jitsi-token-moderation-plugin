@@ -59,4 +59,14 @@ local function on_pre_join(event)
     log("info", "[%s] Nick finalised to '%s' for room %s", bare_jid, forced_nick, room.jid)
 end
 
+-- ранний, когда origin есть (обычные пользователи)
 module:hook("muc-occupant-pre-join", on_pre_join, -10)
+
+-- запасной, когда occupant уже создан (origin точно есть)
+module:hook("muc-occupant-joined", function (event)
+    on_pre_join{
+        room     = event.room,
+        occupant = event.occupant,
+        origin   = event.occupant.origin,
+        stanza   = event.stanza
+    }
