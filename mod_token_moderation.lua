@@ -4,7 +4,7 @@ local json = require "cjson";
 local basexx = require "basexx";
 local os_time = require "util.time".now;
 
-log('info', 'Loaded token moderation plugin v14 (Corrected Cache Logic)');
+log('info', 'Loaded token moderation plugin');
 
 function setupAffiliation(room, origin, jid)
     jid = jid_bare(jid);
@@ -16,7 +16,7 @@ function setupAffiliation(room, origin, jid)
         origin.is_moderator = false;
         return;
     end
-    
+
     local dotFirst = origin.auth_token:find("%.");
     local dotSecond = dotFirst and origin.auth_token:sub(dotFirst + 1):find("%.");
     if not dotSecond then
@@ -31,14 +31,15 @@ function setupAffiliation(room, origin, jid)
         origin.is_moderator = false;
         return;
     end
-    
+
     local now = os_time();
     if (decoded.nbf and now < decoded.nbf) or (decoded.exp and now >= decoded.exp) then
         origin.is_moderator = false;
         return;
     end
-    
-    local moderator_value = (decoded.context and decoded.context.user and decoded.context.user.moderator) or decoded.moderator;
+
+    local moderator_value = (decoded.context and decoded.context.user and decoded.context.user.moderator) or
+        decoded.moderator;
     local moderator_flag = (moderator_value == true);
 
     origin.is_moderator = moderator_flag;
@@ -53,6 +54,12 @@ end
 
 module:hook("muc-room-created", function(event)
     local room = event.room;
+    local occupant = event.occupant;
+    local occupant_jid = occupant.bare_jid;
+    log('info', 'Occupant %s', occupant_jid)
+    local aff = room:get_affiliation(occupant_jid);
+    log('info', 'Aff %s', aff)
+
     log('info', 'Room created: %s — enabling token moderation logic v14', room.jid);
 
     local _handle_first_presence = room.handle_first_presence;
@@ -65,15 +72,17 @@ module:hook("muc-room-created", function(event)
     local _set_affiliation = room.set_affiliation;
     room.set_affiliation = function(room, actor, jid, affiliation, reason)
         if not room or not room.jid then
-             return _set_affiliation(room, actor, jid, affiliation, reason);
+            return _set_affiliation(room, actor, jid, affiliation, reason);
         end
+
         local current_affiliation = room:get_affiliation(jid);
         if current_affiliation == affiliation then
             return true;
         end
 
         local actor_str = tostring(actor);
-        log('info', '--> set_affiliation: jid=%s, new_role=%s, actor=%s, current_role=%s', jid, affiliation, actor_str, tostring(current_affiliation));
+        log('info', '--> set_affiliation: jid=%s, new_role=%s, actor=%s, current_role=%s', jid, affiliation, actor_str,
+            tostring(current_affiliation));
 
         if actor == "token_plugin" then
             return _set_affiliation(room, actor, jid, affiliation, reason);
@@ -86,22 +95,23 @@ module:hook("muc-room-created", function(event)
             log('warn', '[FOCUS-HANDLER] Jicofo promotes user. Allowing temporarily.', jid);
             local success, err, code = _set_affiliation(room, actor, jid, affiliation, reason);
             if success and is_moderator_cached == false then
-                 log('warn', '[FOCUS-HANDLER] --> ACTION: Token cache says NOT moderator. Downgrading %s.', jid);
+                log('warn', '[FOCUS-HANDLER] --> ACTION: Token cache says NOT moderator. Downgrading %s.', jid);
                 _set_affiliation(room, "token_plugin", jid, "member", "Role restored from token cache");
             end
             return success, err, code;
         end
-        
+
         if is_moderator_cached == true and affiliation ~= "owner" then
-             log('warn', '[SECURITY-BLOCK] Blocked external attempt by %s to demote a token-verified moderator: %s', actor_str, jid);
-             return nil, "modify", "not-acceptable";
+            log('warn', '[SECURITY-BLOCK] Blocked external attempt by %s to demote a token-verified moderator: %s',
+                actor_str, jid);
+            return nil, "modify", "not-acceptable";
         end
 
         if is_moderator_cached == false and affiliation == "owner" then
             log('warn', '[SECURITY-BLOCK] Blocked external attempt by %s to promote a non-moderator: %s', actor_str, jid);
             return nil, "modify", "not-acceptable";
         end
-        
+
         if is_moderator_cached == nil then
             log('warn', '[GUARD] Cache not ready for %s. Permitting action for stability.', jid);
         end
