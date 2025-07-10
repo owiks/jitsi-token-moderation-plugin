@@ -109,7 +109,7 @@ module:hook("muc-room-created", function(event)
 
         if hasOwnerAff and current_affiliation == "member" and affiliation == "owner" then
             log('info', 'Current aff denied owner')
-            return false;
+            return _set_affiliation(room, actor, jid, affiliation, reason);
         end
 
 
