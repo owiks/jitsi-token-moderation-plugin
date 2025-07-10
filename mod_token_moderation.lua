@@ -79,6 +79,36 @@ module:hook("muc-room-created", function(event)
 
     local _set_affiliation = room.set_affiliation;
     room.set_affiliation = function(room, actor, jid, affiliation, reason)
+        local actor_str = tostring(actor);
+        log('info', 'set_affiliation: actor=%s jid=%s → %s', actor_str, jid, affiliation);
+
+        -- Состав текущих аффилиаций
+        if room.affiliations then
+            for aff_jid, aff_role in pairs(room.affiliations) do
+                log('info', '[affiliation] %s ⇒ %s', aff_jid, aff_role);
+            end
+        else
+            log('info', 'room.affiliations is nil');
+        end
+
+        -- Список участников (occupants)
+        if room.occupants then
+            for occ_jid, occ in pairs(room.occupants) do
+                log('info',
+                    '[occupant] nick=%s bare_jid=%s full_jid=%s aff=%s role=%s',
+                    tostring(occ.nick),
+                    jid_bare(occ.jid),
+                    tostring(occ.jid),
+                    tostring(occ.affiliation),
+                    tostring(occ.role)
+                );
+            end
+        else
+            log('info', 'room.occupants is nil');
+        end
+
+
+
         if not room or not room.jid then
             return _set_affiliation(room, actor, jid, affiliation, reason);
         end
@@ -88,7 +118,23 @@ module:hook("muc-room-created", function(event)
             return true;
         end
 
+        for jid_, affiliation in room:each_affiliation() do
+            local real_occupant = room:get_occupant_by_real_jid(jid_);
+            log('info', 'Current JID: %s Room JID %s', jid, jid_)
+            log('info', 'Occupant: %s %s', tostring(real_occupant), tostring(affiliation))
+            --if affiliation == "owner" then
+            --    if real_occupant then
+            --        module:log("debug", "Still alive owner found: %s", jid);
+            --        has_owner = true;
+            --        break;
+            --    else
+            --        module:log("debug", "Dead owner affiliation found: %s (not in room)", jid);
+            --    end
+            --end
+        end
+
         local actor_str = tostring(actor);
+
         log('info', '--> set_affiliation: jid=%s, new_role=%s, actor=%s, current_role=%s', jid, affiliation, actor_str,
             tostring(current_affiliation));
 
