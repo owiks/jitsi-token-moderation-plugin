@@ -90,28 +90,29 @@ module:hook("muc-room-created", function(event)
             return true;
         end
 
+        if actor == "token_plugin" then
+            return _set_affiliation(room, actor, jid, affiliation, reason);
+        end
+
         local hasOwnerAff = false
 
         for jid_aff, aff_name in room:each_affiliation() do
             log('info', 'JID: %s aff: %s', jid_aff, aff_name)
-
-            if jid_aff:match("^focus@") then
-                return
-            end
-
-            if aff_name and aff_name == "owner" then
+            if aff_name == "owner" and not jid_aff:match("^focus@") then
                 hasOwnerAff = true
+                break
             end
         end
 
-        log('info', 'Has owner aff: %s', tonumber(hasOwnerAff))
-        log('info', 'Has owner aff: %s', tonumber(hasOwnerAff))
+        log('info', 'Has owner aff: %s', tostring(hasOwnerAff))
 
-        if hasOwnerAff and current_affiliation == "member" and affiliation == "owner" then
-            log('info', 'Current aff denied owner')
-            return _set_affiliation(room, actor, jid, affiliation, reason);
+        if hasOwnerAff
+            and current_affiliation == "member"
+            and affiliation == "owner"
+        then
+            log('info', 'Room already has an owner — denying promotion for %s', jid)
+            return nil, "cancel", "not-allowed"
         end
-
 
         log('info', '--> set_affiliation: jid=%s, new_role=%s, actor=%s, current_role=%s', jid, affiliation, actor_str,
             tostring(current_affiliation));
@@ -124,11 +125,6 @@ module:hook("muc-room-created", function(event)
         if affiliation == "owner" and current_affiliation == "member" and is_moderator_cached then
             return false;
         end
-
-        if actor == "token_plugin" then
-            return _set_affiliation(room, actor, jid, affiliation, reason);
-        end
-
 
         if actor_str:match("^focus@") and affiliation == "owner" then
             log('warn', '[FOCUS-HANDLER] Jicofo promotes user. Allowing temporarily.', jid);
