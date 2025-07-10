@@ -55,17 +55,17 @@ local function verify_user(session, stanza)
     local _, domain = jid_split(user_jid);
 
     if DEBUG then
-        module:log("debug", "Verifying user: %s room: %s", tostring(user_jid), tostring(stanza.attr.to));
-        module:log("debug", "JWT token: %s", tostring(session.auth_token));
+        module:log("info", "Verifying user: %s room: %s", tostring(user_jid), tostring(stanza.attr.to));
+        module:log("info", "JWT token: %s", tostring(session.auth_token));
     end
 
     if is_admin(user_jid) then
-        if DEBUG then module:log("debug", "Admin user, skipping token check: %s", user_jid); end
+        if DEBUG then module:log("info", "Admin user, skipping token check: %s", user_jid); end
         return true;
     end
 
     if allowlist:contains(domain) or allowlist:contains(bare) then
-        if DEBUG then module:log("debug", "Allowlisted user: %s", user_jid); end
+        if DEBUG then module:log("info", "Allowlisted user: %s", user_jid); end
         return true;
     end
 
@@ -80,7 +80,7 @@ local function verify_user(session, stanza)
         return false;
     end
 
-    if DEBUG then module:log("debug", "Token verified for: %s", user_jid); end
+    if DEBUG then module:log("info", "Token verified for: %s", user_jid); end
     return true;
 end
 
