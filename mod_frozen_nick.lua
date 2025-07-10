@@ -1,67 +1,62 @@
-local log = module._log;
-local json = require "cjson";
+local log  = module._log
+local json = require "cjson"
 
-module:log("info", "Loaded mod_frozen_nick");
+log("info", "Loaded mod_frozen_nick (muc-occupant-pre-join)")
 
-local function on_presence(event)
-    local origin = event.origin;
-    local stanza = event.stanza;
+local function on_pre_join(event)
+    local room     = event.room
+    local occupant = event.occupant
+    local origin   = occupant and occupant.origin
+    local stanza   = event.stanza
 
-    if not origin then
-        log("info", "Presence ignored: event.origin is nil");
-        return;
+    if not (room and origin and stanza) then
+        log("warn", "Received pre-join without full context — room=%s origin=%s stanza=%s",
+            tostring(room and room.jid), tostring(origin), tostring(stanza))
+        return
     end
 
-    if not stanza then
-        log("info", "[%s] Presence ignored: event.stanza is nil", origin.username or "unknown");
-        return;
+    local bare_jid = origin.username or "unknown"
+    log("info", "[%s] Pre-join for room %s", bare_jid, room.jid)
+
+    local ctx = origin.jitsi_meet_context_user
+    if not ctx then
+        log("info", "[%s] No jitsi_meet_context_user in session — keeping client nick", bare_jid)
+        return
     end
 
-    local jid = origin.username or "unknown";
-    log("info", "[%s] Presence received:\n%s", jid, tostring(stanza));
-
-    local user_ctx = origin.jitsi_meet_context_user;
-    if not user_ctx then
-        log("info", "[%s] No jitsi_meet_context_user in session. Skipping nick override.", jid);
-        return;
-    end
-
-    -- 🔍 логируем весь контекст
-    local ok, ctx_dump = pcall(json.encode, user_ctx);
+    local ok, ctx_json = pcall(json.encode, ctx)
     if ok then
-        log("info", "[%s] jitsi_meet_context_user: %s", jid, ctx_dump);
+        log("info", "[%s] JWT user context: %s", bare_jid, ctx_json)
     else
-        log("info", "[%s] Failed to JSON encode jitsi_meet_context_user", jid);
+        log("info", "[%s] Failed to JSON-encode user context", bare_jid)
     end
 
-    if not user_ctx.name then
-        log("info", "[%s] jitsi_meet_context_user.name is not set. Skipping nick override.", jid);
-        return;
+    if not ctx.name or ctx.name == "" then
+        log("info", "[%s] JWT does not contain a name — keeping client nick", bare_jid)
+        return
     end
+    local forced_nick = ctx.name
+    log("info", "[%s] Forcing nick → '%s'", bare_jid, forced_nick)
 
-    local forced_nick = user_ctx.name;
-    log("info", "[%s] Forcing nick to '%s' from JWT context", jid, forced_nick);
-
-    -- лог всех старых ников
-    for tag in stanza:childtags("nick", "http://jabber.org/protocol/nick") do
-        log("info", "[%s] Found original nick: '%s'", jid, tag:get_text());
-    end
-
-    -- удаляем все <nick>
+    local nick_removed = false
     stanza:maptags(function(tag)
-        if tag.name == "nick" and tag.attr.xmlns == "http://jabber.org/protocol/nick" then
-            log("info", "[%s] Removing existing <nick>", jid);
-            return nil;
+        if tag.name == "nick"
+           and tag.attr.xmlns == "http://jabber.org/protocol/nick" then
+            nick_removed = true
+            return nil
         end
-        return tag;
+        return tag
     end)
+    if nick_removed then
+        log("info", "[%s] Removed nick element(s) supplied by client", bare_jid)
+    else
+        log("info", "[%s] No <nick> element from client — adding new", bare_jid)
+    end
 
-    -- вставляем новый <nick>
-    stanza:tag("nick", { xmlns = "http://jabber.org/protocol/nick" }):text(forced_nick):up();
+    stanza:tag("nick", { xmlns = "http://jabber.org/protocol/nick" })
+          :text(forced_nick):up()
 
-    log("info", "[%s] Nick successfully set to '%s'", jid, forced_nick);
-    log("info", "[%s] Modified stanza:\n%s", jid, tostring(stanza));
+    log("info", "[%s] Nick finalised to '%s' for room %s", bare_jid, forced_nick, room.jid)
 end
 
-module:hook("pre-presence/bare", on_presence);
-module:hook("pre-presence/full", on_presence);
+module:hook("muc-occupant-pre-join", on_pre_join, -10)
