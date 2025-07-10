@@ -1,67 +1,87 @@
--- Token moderation
--- this module looks for a field on incoming JWT tokens called "moderator". 
--- If it is true the user is added to the room as a moderator, otherwise they are set to a normal user.
--- Note this may well break other affiliation based features like banning or login-based admins
 local log = module._log;
 local jid_bare = require "util.jid".bare;
 local json = require "cjson";
 local basexx = require "basexx";
-local um_is_admin = require "core.usermanager".is_admin;
-
-local function is_admin(jid)
-        return um_is_admin(jid, module.host);
-end
 
 log('info', 'Loaded token moderation plugin');
--- Hook into room creation to add this wrapper to every new room
+
 module:hook("muc-room-created", function(event)
-        log('info', 'room created, adding token moderation code');
-        local room = event.room;
-        local _handle_normal_presence = room.handle_normal_presence;
-        local _handle_first_presence = room.handle_first_presence;
-        -- Wrap presence handlers to set affiliations from token whenever a user joins
-        room.handle_normal_presence = function(thisRoom, origin, stanza)
-                local pres = _handle_normal_presence(thisRoom, origin, stanza);
-                setupAffiliation(thisRoom, origin, stanza);
-                return pres;
+    local room = event.room;
+    log('info', 'Room created: %s — enabling token moderation logic', room.jid);
+
+    local _handle_normal_presence = room.handle_normal_presence;
+    local _handle_first_presence = room.handle_first_presence;
+
+    room.handle_normal_presence = function(thisRoom, origin, stanza)
+        local pres = _handle_normal_presence(thisRoom, origin, stanza);
+        setupAffiliation(thisRoom, origin, stanza);
+        return pres;
+    end;
+
+    room.handle_first_presence = function(thisRoom, origin, stanza)
+        local pres = _handle_first_presence(thisRoom, origin, stanza);
+        setupAffiliation(thisRoom, origin, stanza);
+        return pres;
+    end;
+
+    local _set_affiliation = room.set_affiliation;
+    room.set_affiliation = function(room, actor, jid, affiliation, reason)
+        log('debug', 'set_affiliation called: actor=%s jid=%s affiliation=%s', tostring(actor), tostring(jid), tostring(affiliation));
+        if actor == "token_plugin" then
+            log('debug', 'Setting affiliation via token_plugin: %s → %s', jid, affiliation);
+            return _set_affiliation(room, true, jid, affiliation, reason);
+        elseif affiliation == "owner" then
+            log('warn', 'Blocked external attempt to assign owner to %s', jid);
+            return nil, "modify", "not-acceptable";
+        else
+            return _set_affiliation(room, actor, jid, affiliation, reason);
         end;
-        room.handle_first_presence = function(thisRoom, origin, stanza)
-                local pres = _handle_first_presence(thisRoom, origin, stanza);
-                setupAffiliation(thisRoom, origin, stanza);
-                return pres;
-        end;
-        -- Wrap set affilaition to block anything but token setting owner (stop pesky auto-ownering)
-        local _set_affiliation = room.set_affiliation;
-        room.set_affiliation = function(room, actor, jid, affiliation, reason)
-                -- let this plugin do whatever it wants
-                if actor == "token_plugin" then
-                        return _set_affiliation(room, true, jid, affiliation, reason)
-                -- noone else can assign owner (in order to block prosody/jisti's built in moderation functionality
-                elseif affiliation == "owner" then
-                        return nil, "modify", "not-acceptable"
-                -- keep other affil stuff working as normal (hopefully, haven't needed to use/test any of it)
-                else
-                        return _set_affiliation(room, actor, jid, affiliation, reason);
-                end;
-        end;
+    end;
 end);
+
 function setupAffiliation(room, origin, stanza)
-        if origin.auth_token then
-                -- Extract token body and decode it
-                local dotFirst = origin.auth_token:find("%.");
-                if dotFirst then
-                        local dotSecond = origin.auth_token:sub(dotFirst + 1):find("%.");
-                        if dotSecond then
-                                local bodyB64 = origin.auth_token:sub(dotFirst + 1, dotFirst + dotSecond - 1);
-                                local body = json.decode(basexx.from_url64(bodyB64));
-                                local jid = jid_bare(stanza.attr.from);
-                                -- If user is a moderator or an admin, set their affiliation to be an owner
-                                if body["moderator"] == true or is_admin(jid) then
-                                        room:set_affiliation("token_plugin", jid, "owner");
-                                else
-                                        room:set_affiliation("token_plugin", jid, "member");
-                                end;
-			end;
-		end;
-	end;
-end;
+    local jid = jid_bare(stanza.attr.from);
+    log('debug', '[%s] Starting affiliation setup', jid);
+
+    if not origin.auth_token then
+        log('debug', '[%s] No auth_token found in session', jid);
+        return;
+    end
+
+    log('debug', '[%s] JWT token: %s', jid, origin.auth_token);
+
+    local dotFirst = origin.auth_token:find("%.");
+    if not dotFirst then
+        log('warn', '[%s] Malformed token: no first dot', jid);
+        return;
+    end
+
+    local dotSecond = origin.auth_token:sub(dotFirst + 1):find("%.");
+    if not dotSecond then
+        log('warn', '[%s] Malformed token: no second dot', jid);
+        return;
+    end
+
+    local bodyB64 = origin.auth_token:sub(dotFirst + 1, dotFirst + dotSecond - 1);
+    log('debug', '[%s] Encoded JWT body (base64url): %s', jid, bodyB64);
+
+    local success, decoded = pcall(function()
+        return json.decode(basexx.from_url64(bodyB64));
+    end);
+
+    if not success or type(decoded) ~= "table" then
+        log('error', '[%s] Failed to decode token body', jid);
+        return;
+    end
+
+    local raw_json = json.encode(decoded);
+    log('debug', '[%s] Decoded JWT body: %s', jid, raw_json);
+
+    if decoded["moderator"] == true then
+        log('info', '[%s] moderator=true — assigning owner', jid);
+        room:set_affiliation("token_plugin", jid, "owner");
+    else
+        log('info', '[%s] moderator=false or missing — assigning member', jid);
+        room:set_affiliation("token_plugin", jid, "member");
+    end
+end
