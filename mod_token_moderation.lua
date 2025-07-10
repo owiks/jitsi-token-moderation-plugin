@@ -3,12 +3,11 @@ local jid_bare = require "util.jid".bare;
 local json = require "cjson";
 local basexx = require "basexx";
 
-log('info', 'Loaded token moderation plugin v3 (hardened and optimized)');
+log('info', 'Loaded token moderation plugin v4 (stable hook)');
 
 function setupAffiliation(room, origin, jid)
     jid = jid_bare(jid);
 
-    -- Используем кэш, если права уже были определены
     if origin.is_moderator ~= nil then
         return;
     end
@@ -43,7 +42,6 @@ function setupAffiliation(room, origin, jid)
 
     local moderator_flag = (decoded.context and decoded.context.user and decoded.context.user.moderator == true) or (decoded.moderator == true);
 
-    -- Кэшируем результат в сессии пользователя
     origin.is_moderator = moderator_flag;
     log('info', '[%s] Determined and cached affiliation: is_moderator=%s', jid, tostring(moderator_flag));
 
@@ -56,15 +54,14 @@ end
 
 module:hook("muc-room-created", function(event)
     local room = event.room;
-    log('info', 'Room created: %s — enabling token moderation logic v3', room.jid);
+    log('info', 'Room created: %s — enabling token moderation logic v4', room.jid);
 
-    -- Это гарантирует, что права будут известны ДО того, как пользователь полностью вошел
-    module:hook("muc-occupant-pre-join", function(event)
-        local occupant, room_jid = event.occupant, event.room.jid;
-        if room.jid == room_jid then -- Убеждаемся, что событие для нашей комнаты
-            setupAffiliation(room, occupant.origin, occupant.jid);
-        end
-    end, -10); -- Высокий приоритет, чтобы выполниться раньше других
+    local _handle_first_presence = room.handle_first_presence;
+    room.handle_first_presence = function(thisRoom, origin, stanza)
+        local pres = _handle_first_presence(thisRoom, origin, stanza);
+        setupAffiliation(thisRoom, origin, stanza.attr.from);
+        return pres;
+    end;
 
     local _set_affiliation = room.set_affiliation;
     room.set_affiliation = function(room, actor, jid, affiliation, reason)
@@ -92,13 +89,11 @@ module:hook("muc-room-created", function(event)
         
         local current_affiliation = room:get_affiliation(jid);
 
-        -- Защищаем модераторов от понижения
         if current_affiliation == "owner" and affiliation ~= "owner" and is_moderator_cached and is_external_actor then
             log('warn', 'Blocked external attempt by %s to demote a token-verified moderator: %s', actor_str, jid);
             return nil, "modify", "not-acceptable";
         end
 
-        -- Блокируем любое внешнее назначение в модераторы
         if affiliation == "owner" and is_external_actor then
             log('warn', 'Blocked external attempt by %s to promote a user to owner: %s', actor_str, jid);
             return nil, "modify", "not-acceptable";
