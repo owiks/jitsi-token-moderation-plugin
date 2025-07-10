@@ -62,6 +62,13 @@ module:hook("muc-room-created", function(event)
 
     local _handle_first_presence = room.handle_first_presence;
     room.handle_first_presence = function(thisRoom, origin, stanza)
+        for k, v in pairs(event) do
+            log('info', 'handle_first_presence[%s] = %s', tostring(k), tostring(v));
+        end
+
+        log('info', 'thisRoom %s', tostring(thisRoom))
+        log('info', 'origin %s', tostring(origin))
+        log('info', 'stanza %s', tostring(stanza))
         local pres = _handle_first_presence(thisRoom, origin, stanza);
         setupAffiliation(thisRoom, origin, stanza.attr.from);
         return pres;
