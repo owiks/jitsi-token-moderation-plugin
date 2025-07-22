@@ -1,7 +1,7 @@
 local log = module._log;
 local cjson = require "cjson";
 
-module:log("info", "[Armored-Logger] Module loaded.");
+module:log("info", "[Hook-Logger] Module loaded.");
 
 local HOOKS_TO_LOG = {
     "user-registered", "user-authentication-success", "user-authentication-failure",
@@ -18,43 +18,73 @@ local HOOKS_TO_LOG = {
 }
 local HOOK_PRIORITY = -100;
 
-local function sanitize(data, seen)
-    seen = seen or {};
-    local data_type = type(data);
-
-    if data_type ~= "table" then
-        return (data_type == "string" or data_type == "number" or data_type == "boolean" or data == nil) and data or string.format("<%s>", data_type);
+local function sanitize(data, seen, depth)
+    depth = depth or 0
+    if depth > 15 then
+        log("debug", "[Hook-Logger][sanitize] Max depth reached at depth %d", depth)
+        return "<max_depth_reached>"
     end
-    
-    if seen[data] then return "<Circular Reference>"; end
-    seen[data] = true;
 
-    local clean_table = {};
+    local data_type = type(data)
+    if data_type ~= "table" then
+        local simple = (data_type == "string" or data_type == "number" or data_type == "boolean" or data == nil)
+        if not simple then
+            log("debug", "[Hook-Logger][sanitize] Non-simple type %s encountered: %s", data_type, tostring(data))
+        end
+        return simple and data or string.format("<%s>", data_type)
+    end
+
+    if not seen then seen = {} end
+    if seen[data] then
+        log("debug", "[Hook-Logger][sanitize] Circular reference detected at depth %d", depth)
+        return "<Circular Reference>"
+    end
+    seen[data] = true
+
+    local clean_table = {}
     for k, v in pairs(data) do
-        if type(k) == "string" or type(k) == "number" then
-            clean_table[k] = sanitize(v, seen);
+        local kt = type(k)
+        if kt == "string" or kt == "number" then
+            log("trace", "[Hook-Logger][sanitize] Processing key '%s' of type '%s' at depth %d", tostring(k), kt, depth)
+            local vt = type(v)
+            if vt == "table" then
+                clean_table[k] = sanitize(v, seen, depth + 1)
+            elseif vt == "string" or vt == "number" or vt == "boolean" or vt == "nil" then
+                clean_table[k] = v
+            else
+                log("debug", "[Hook-Logger][sanitize] Unsupported value type '%s' at key '%s'", vt, tostring(k))
+                clean_table[k] = string.format("<%s>", vt)
+            end
+        else
+            log("debug", "[Hook-Logger][sanitize] Unsupported key type '%s' at depth %d", kt, depth)
         end
     end
-    
-    seen[data] = nil;
-    return clean_table;
+
+    seen[data] = nil
+    return clean_table
 end
 
 local function safe_get(root, ...)
-    local current = root;
+    local current = root
     for i = 1, select('#', ...) do
-        local key = select(i, ...);
+        local key = select(i, ...)
         if type(current) ~= "table" or current[key] == nil then
-            return nil;
+            log("debug", "[Hook-Logger][safe_get] Missing key '%s' at depth %d", tostring(key), i)
+            return nil
         end
-        current = current[key];
+        current = current[key]
     end
-    return current;
+    return current
 end
 
 local function make_hook_logger(hook_name)
     return function(event)
-        if type(event) ~= "table" then return; end
+        if type(event) ~= "table" then
+            log("warn", "[Hook-Logger] Invalid event type for %s: %s", hook_name, type(event))
+            return
+        end
+
+        log("debug", "[Hook-Logger] %s event debug string: %s", hook_name, tostring(event))
 
         local metadata = {
             timestamp    = os.date("!%Y-%m-%dT%H:%M:%SZ"),
@@ -71,22 +101,24 @@ local function make_hook_logger(hook_name)
             affiliation  = safe_get(event, "occupant", "affiliation"),
             nick         = tostring(safe_get(event, "nick") or ""),
             stanza_name  = safe_get(event, "stanza", "name"),
-        };
+        }
 
-        metadata.raw_event = sanitize(event);
+        log("debug", "[Hook-Logger] Sanitizing event for JSON serialization")
+        metadata.raw_event = sanitize(event)
+        log("debug", "[Hook-Logger] Sanitized event: %s", tostring(metadata.raw_event) or "<nil>")
 
-        local success, json_string = pcall(cjson.encode, metadata);
+        local success, json_string = pcall(cjson.encode, metadata)
 
         if success then
-            log("info", json_string);
+            log("info", "[Hook-Logger] %s %s", hook_name, json_string)
         else
-            log("error", "[Armored-Logger] FATAL: Failed to encode event '%s'. Reason: %s", hook_name, tostring(json_string));
+            log("error", "[Hook-Logger] FATAL: Failed to encode event '%s'. Reason: %s", hook_name, tostring(json_string))
         end
     end
 end
 
-module:log("info", "[Armored-Logger] Attaching %d hooks with priority %d...", #HOOKS_TO_LOG, HOOK_PRIORITY);
+module:log("info", "[Hook-Logger] Attaching %d hooks with priority %d...", #HOOKS_TO_LOG, HOOK_PRIORITY)
 for _, hook_name in ipairs(HOOKS_TO_LOG) do
-    module:hook(hook_name, make_hook_logger(hook_name), HOOK_PRIORITY);
+    module:hook(hook_name, make_hook_logger(hook_name), HOOK_PRIORITY)
 end
-module:log("info", "[Armored-Logger] All diagnostic hooks attached.");
+module:log("info", "[Hook-Logger] All diagnostic hooks attached.")
