@@ -1,91 +1,122 @@
-local log = module._log;
-local cjson = require "cjson";
+local log = module._log
+local cjson = require "cjson"
 
-log('info', '[Logger-Hooks] Module loaded.');
+module:log("info", "[Logger-Hooks] Module loaded.")
 
 -- --- CONFIGURATION ---
-local MAX_DEPTH = 4; -- Max recursion depth for the text logger
+local HOOK_PRIORITY = module:get_option_number("logger_hooks_priority", -100)
+local LOG_RAW_EVENT = module:get_option_boolean("logger_hooks_log_raw", false)
 
----
--- Text Formatter: Recursively formats a table into a readable string with depth limit.
----
-local function format_text_with_depth(data, depth)
-    depth = depth or 1;
-    if depth > MAX_DEPTH then return "{... MAX_DEPTH ...}"; end
-    local t = type(data);
-    if t == "table" then
-        local parts = {};
-        for k, v in pairs(data) do
-            if type(v) ~= "function" and type(v) ~= "cdata" and type(v) ~= "userdata" then
-                local key_str = string.format("%-20s", tostring(k));
-                table.insert(parts, string.format("%s = %s", key_str, format_text_with_depth(v, depth + 1)));
-            end
-        end
-        if #parts == 0 then return "{}"; end
-        return string.format("{\n%s  %s\n%s}", string.rep("  ", depth), table.concat(parts, ",\n" .. string.rep("  ", depth + 1)), string.rep("  ", depth));
-    else
-        return tostring(data);
+-- --- HOOKS TO LOG ---
+local HOOKS_TO_LOG = {
+    -- Сессии и аутентификация
+    "user-registered",
+    "user-authentication-success",
+    "user-authentication-failure",
+    "user-authenticated",
+    "resource-bind",
+    "session-created",
+    "session-pre-bind",
+    "session-bind",
+    "session-started",
+    "session-resumed",
+    "session-closed",
+
+    -- MUC: создание, удаление, конфиг
+    "muc-room-pre-create",
+    "muc-room-created",
+    "muc-room-destroyed",
+    "muc-config-submitted",
+    "muc-room-config-changed",
+
+    -- MUC: участники
+    "muc-occupant-pre-join",
+    "muc-occupant-joined",
+    "muc-occupant-role-changed",
+    "muc-occupant-left",
+
+    -- MUC: модерация
+    "muc-set-role",
+    "muc-set-affiliation",
+    "muc-privilege-request",
+
+    -- MUC: сообщения
+    "muc-broadcast-message",
+    "muc-privmsg",
+
+    -- STANZAS: приём перед обработкой
+    "pre-presence/full",
+    "pre-message/full",
+    "pre-iq/full",
+
+    -- STANZAS: после обработки
+    "presence/full",
+    "message/full",
+    "iq/full",
+
+    -- Отладочные/специфичные
+    "jitsi-meet-token-accepted",
+    "jitsi-meet-token-rejected",
+    "jitsi-meet-token-check",
+    "authentication-success",
+    "authentication-failure",
+}
+
+-- --- LOG WRAPPER ---
+local function log_info(fmt, ...)
+    log("info", "[Logger-Hooks] " .. fmt, ...)
+end
+
+-- --- METADATA EXTRACTION ---
+local function extract_event_metadata(event)
+    return {
+        timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ"),
+        event = event.event or "unknown_event",
+        origin_type = event.origin and event.origin.type or nil,
+        stanza_type = event.stanza and event.stanza.name or nil,
+        raw = LOG_RAW_EVENT and event or nil
+    }
+end
+
+-- --- JSON ENCODER ---
+local function encode_event_to_json(event_meta)
+    local clean = {
+        timestamp = event_meta.timestamp,
+        event = event_meta.event,
+        origin_type = event_meta.origin_type,
+        stanza_type = event_meta.stanza_type,
+    }
+    if LOG_RAW_EVENT and event_meta.raw then
+        clean.raw = "[raw event removed for safety]" -- не сериализуем
     end
-end
-
----
--- JSON Sanitizer: Cleans a table for safe JSON conversion, handling circular refs.
----
-local function sanitize_for_json(data, visited)
-    visited = visited or { [data] = true };
-    local clean_table = {};
-    for k, v in pairs(data) do
-        local key_type = type(k);
-        if key_type == "string" or key_type == "number" then
-            local value_type = type(v);
-            if value_type == "string" or value_type == "number" or value_type == "boolean" or value_type == "nil" then
-                clean_table[k] = v;
-            elseif value_type == "table" then
-                if visited[v] then
-                    clean_table[k] = "[Circular Reference]";
-                else
-                    visited[v] = true;
-                    clean_table[k] = sanitize_for_json(v, visited);
-                end
-            else
-                clean_table[k] = string.format("[%s]", value_type);
-            end
-        end
+    local ok, encoded = pcall(cjson.encode, clean)
+    if not ok then
+        log("error", "[Logger-Hooks] Failed to encode event '%s' to JSON: %s", tostring(event_meta.event), tostring(encoded))
+        return nil
     end
-    return clean_table;
+    return encoded
 end
 
----
--- Generic hook handler that logs in both formats.
----
-local function log_event_hybrid(event)
-    local event_name = event.event or "unknown_event";
+-- --- MAIN LOGIC ---
+local function log_hook_event(event)
+    if type(event) ~= "table" then
+        log("warn", "[Logger-Hooks] Invalid event type: %s", type(event))
+        return
+    end
 
-    local text_output = format_text_with_depth(event);
-    local clean_event = sanitize_for_json(event);
-    
-    local success, json_string = pcall(cjson.encode, clean_event);
-    
-    local json_output = success and json_string or string.format("{\"error\": \"Failed to encode event to JSON: %s\"}", tostring(json_string));
-    
-    log('debug', "\n---[ HOOK: %s ]---\n%s\n---[ END HOOK: %s ]---",
-               event_name, json_output, event_name);
+    local metadata = extract_event_metadata(event)
+    local json_output = encode_event_to_json(metadata)
+    if not json_output then return end
+
+    log("debug", "\n---[ HOOK: %s ]---\n%s\n---[ END HOOK: %s ]---",
+        metadata.event, json_output, metadata.event)
 end
 
-log('info', '[Hybrid-Logger] Attaching hooks...');
+log_info("Attaching hooks with priority %d...", HOOK_PRIORITY)
 
-module:hook("user-authenticated", log_event_hybrid, -100);
-module:hook("session-started", log_event_hybrid, -100);
-module:hook("session-closed", log_event_hybrid, -100);
-module:hook("muc-room-pre-create", log_event_hybrid, -100);
-module:hook("muc-room-created", log_event_hybrid, -100);
-module:hook("muc-room-destroyed", log_event_hybrid, -100);
-module:hook("muc-occupant-pre-join", log_event_hybrid, -100);
-module:hook("muc-occupant-joined", log_event_hybrid, -100);
-module:hook("muc-occupant-left", log_event_hybrid, -100);
-module:hook("muc-set-affiliation", log_event_hybrid, -100);
-module:hook("muc-set-role", log_event_hybrid, -100);
-module:hook("pre-presence/full", log_event_hybrid, -100);
-module:hook("pre-message/full", log_event_hybrid, -100);
-module:hook("pre-iq/full", log_event_hybrid, -100);
-log('info', '[Logger-Hooks] All diagnostic hooks have been successfully attached.');
+for _, hook in ipairs(HOOKS_TO_LOG) do
+    module:hook(hook, log_hook_event, HOOK_PRIORITY)
+    module:hook_global(hook, log_hook_event, HOOK_PRIORITY)
+end
+
+log_info("All diagnostic hooks attached.")
