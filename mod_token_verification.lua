@@ -67,10 +67,11 @@ local function verify_user(session, stanza)
     module:log("info", "Session token: %s, session room: %s",
             tostring(session.auth_token), tostring(session.jitsi_meet_room));
 
-    -- token not required for admin users
     local user_jid = stanza.attr.from;
+
+    -- token not required for admin users
     if is_admin(user_jid) then
-        module:log("info", "Token not required from admin user: %s", user_jid); end
+        module:log("info", "Token not required from admin user: %s", user_jid);
         return true;
     end
 
@@ -78,22 +79,23 @@ local function verify_user(session, stanza)
     local user_bare_jid = jid_bare(user_jid);
     local _, user_domain = jid_split(user_jid);
 
-    -- allowlist for participants
     if allowlist:contains(user_domain) or allowlist:contains(user_bare_jid) then
-        module:log("info", "Token not required from user in allow list: %s", user_jid); end
+        module:log("info", "Token not required from user in allow list: %s", user_jid);
         return true;
     end
 
-    module:log("info", "Will verify token for user: %s, room: %s ", user_jid, stanza.attr.to); end
+    module:log("info", "Will verify token for user: %s, room: %s ", user_jid, stanza.attr.to);
+
     if not token_util:verify_room(session, stanza.attr.to) then
         module:log("error", "Token %s not allowed to join: %s",
             tostring(session.auth_token), tostring(stanza.attr.to));
         session.send(
             st.error_reply(
                 stanza, "cancel", "not-allowed", "Room and token mismatched"));
-        return false; -- we need to just return non nil
+        return false;
     end
-    module:log("info", "allowed: %s to enter/create room: %s", user_jid, stanza.attr.to); end
+
+    module:log("info", "allowed: %s to enter/create room: %s", user_jid, stanza.attr.to);
     return true;
 end
 
