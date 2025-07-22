@@ -30,6 +30,10 @@ if parentCtx == nil then
 end
 
 module:log("info", "Parent context: %s HOST %s", tostring(parentCtx), tostring(host));
+module:log("info", "Loaded app_id: %s, app_secret: %s, asap_key_server: %s",
+    tostring(parentCtx:get_option_string("app_id")),
+    tostring(parentCtx:get_option_string("app_secret")),
+    tostring(parentCtx:get_option_string("asap_key_server")));
 
 local token_util = module:require "token/util".new(parentCtx);
 
