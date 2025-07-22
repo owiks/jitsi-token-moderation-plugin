@@ -91,16 +91,16 @@ local function make_hook_logger(hook_name)
             event        = hook_name,
             origin_type  = safe_get(event, "origin", "type"),
             origin_jid   = safe_get(event, "origin", "full_jid"),
-            ip           = safe_get(event, "origin", "conn", "ip"),
-            is_admin     = safe_get(event, "origin", "jitsi_meet_context_user", "is_admin"),
+            --ip           = safe_get(event, "origin", "conn", "ip"),
+            --is_admin     = safe_get(event, "origin", "jitsi_meet_context_user", "is_admin"),
             room_jid     = safe_get(event, "room", "jid"),
             room_name    = safe_get(event, "room", "_data", "name"),
-            occupant_jid = tostring(safe_get(event, "occupant", "nick") or ""),
-            actor        = tostring(safe_get(event, "actor") or ""),
+            --occupant_jid = tostring(safe_get(event, "occupant", "nick") or ""),
+            --actor        = tostring(safe_get(event, "actor") or ""),
             role         = safe_get(event, "occupant", "role"),
             affiliation  = safe_get(event, "occupant", "affiliation"),
-            nick         = tostring(safe_get(event, "nick") or ""),
-            stanza_name  = safe_get(event, "stanza", "name"),
+            --nick         = tostring(safe_get(event, "nick") or ""),
+            --stanza_name  = safe_get(event, "stanza", "name"),
         }
 
         log("debug", "[Hook-Logger] Sanitizing event for JSON serialization")
