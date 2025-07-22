@@ -1,155 +1,92 @@
-local log = module._log
-local cjson = require "cjson"
+local log = module._log;
+local cjson = require "cjson";
 
-module:log("info", "[Logger-Hooks] Module loaded.")
-
-local HOOK_PRIORITY = module:get_option_number("logger_hooks_priority", -100)
-local LOG_RAW_EVENT = module:get_option_boolean("logger_hooks_log_raw", false)
+module:log("info", "[Armored-Logger] Module loaded.");
 
 local HOOKS_TO_LOG = {
-    "user-registered",
-    "user-authentication-success",
-    "user-authentication-failure",
-    "user-authenticated",
-    "resource-bind",
-    "session-created",
-    "session-pre-bind",
-    "session-bind",
-    "session-started",
-    "session-resumed",
-    "session-closed",
-    "muc-room-pre-create",
-    "muc-room-created",
-    "muc-room-destroyed",
-    "muc-config-submitted",
-    "muc-room-config-changed",
-    "muc-occupant-pre-join",
-    "muc-occupant-joined",
-    "muc-occupant-role-changed",
-    "muc-occupant-left",
-    "muc-set-role",
-    "muc-set-affiliation",
-    "muc-privilege-request",
-    "muc-broadcast-message",
-    "muc-privmsg",
-    "pre-presence/full",
-    "pre-message/full",
-    "pre-iq/full",
-    "presence/full",
-    "message/full",
-    "iq/full",
-    "jitsi-meet-token-accepted",
-    "jitsi-meet-token-rejected",
-    "jitsi-meet-token-check",
-    "authentication-success",
-    "authentication-failure",
+    "user-registered", "user-authentication-success", "user-authentication-failure",
+    "user-authenticated", "resource-bind", "session-created", "session-pre-bind",
+    "session-bind", "session-started", "session-resumed", "session-closed",
+    "muc-room-pre-create", "muc-room-created", "muc-room-destroyed",
+    "muc-config-submitted", "muc-room-config-changed", "muc-occupant-pre-join",
+    "muc-occupant-joined", "muc-occupant-role-changed", "muc-occupant-left",
+    "muc-set-role", "muc-set-affiliation", "muc-privilege-request",
+    "muc-broadcast-message", "muc-privmsg", "pre-presence/full", "pre-message/full",
+    "pre-iq/full", "presence/full", "message/full", "iq/full",
+    "jitsi-meet-token-accepted", "jitsi-meet-token-rejected", "jitsi-meet-token-check",
+    "authentication-success", "authentication-failure",
 }
+local HOOK_PRIORITY = -100;
 
-local function log_info(fmt, ...)
-    log("info", "[Logger-Hooks] " .. fmt, ...)
-end
+local function sanitize(data, seen)
+    seen = seen or {};
+    local data_type = type(data);
 
--- Улучшенный sanitize_for_json с трекером циклов и глубиной
-local function sanitize_for_json(obj, depth, seen)
-    depth = depth or 0
-    if depth > 10 then
-        return "<max_depth_reached>"
+    if data_type ~= "table" then
+        return (data_type == "string" or data_type == "number" or data_type == "boolean" or data == nil) and data or string.format("<%s>", data_type);
     end
-    seen = seen or {}
+    
+    if seen[data] then return "<Circular Reference>"; end
+    seen[data] = true;
 
-    local t = type(obj)
-    if t == "table" then
-        if seen[obj] then
-            return "<circular_reference>"
+    local clean_table = {};
+    for k, v in pairs(data) do
+        if type(k) == "string" or type(k) == "number" then
+            clean_table[k] = sanitize(v, seen);
         end
-        seen[obj] = true
+    end
+    
+    seen[data] = nil;
+    return clean_table;
+end
 
-        local clean = {}
-        for k, v in pairs(obj) do
-            local kt = type(k)
-            if kt ~= "string" and kt ~= "number" then
-                goto continue
-            end
-
-            local vt = type(v)
-            if vt == "table" then
-                clean[k] = sanitize_for_json(v, depth + 1, seen)
-            elseif vt == "string" or vt == "number" or vt == "boolean" or vt == "nil" then
-                clean[k] = v
-            else
-                -- ВАЖНО: пропускаем функции, userdata, threads и т.п.
-                clean[k] = "<" .. vt .. ">"
-            end
-
-            ::continue::
+local function safe_get(root, ...)
+    local current = root;
+    for i = 1, select('#', ...) do
+        local key = select(i, ...);
+        if type(current) ~= "table" or current[key] == nil then
+            return nil;
         end
-
-        seen[obj] = nil
-        return clean
-
-    elseif t == "string" or t == "number" or t == "boolean" or t == "nil" then
-        return obj
-    else
-        -- Пропускаем функции и др. типы — заменяем на строку
-        return "<" .. t .. ">"
+        current = current[key];
     end
-end
-
-local function extract_event_metadata(hook_name, event)
-    return {
-        timestamp    = os.date("!%Y-%m-%dT%H:%M:%SZ"),
-        event        = hook_name,
-        origin_type  = event.origin and event.origin.type or nil,
-        origin_jid   = event.origin and event.origin.full_jid or nil,
-        ip           = event.origin and event.origin.conn and event.origin.conn.ip or nil,
-        is_admin     = event.origin and event.origin.jitsi_meet_context_user and event.origin.jitsi_meet_context_user.is_admin or nil,
-        room_jid     = event.room and event.room.jid or nil,
-        room_name    = event.room and event.room._data and event.room._data.name or nil,
-        occupant_jid = event.occupant and tostring(event.occupant.nick) or nil,
-        actor        = event.actor and tostring(event.actor) or nil,
-        role         = event.occupant and event.occupant.role or nil,
-        affiliation  = event.occupant and event.occupant.affiliation or nil,
-        nick         = event.nick and tostring(event.nick) or nil,
-        stanza_name  = event.stanza and event.stanza.name or nil,
-    }
-end
-
-local function encode_event_to_json(event_meta, raw_event)
-    local clean_event = sanitize_for_json(raw_event)
-    local combined = {}
-    for k, v in pairs(event_meta) do combined[k] = v end
-    combined.raw_event = clean_event
-    local ok, encoded = pcall(cjson.encode, combined)
-    if not ok then
-        log("error", "[Logger-Hooks] Failed to encode event '%s': %s", tostring(event_meta.event), tostring(encoded))
-        return nil
-    end
-    return encoded
+    return current;
 end
 
 local function make_hook_logger(hook_name)
     return function(event)
-        if type(event) ~= "table" then
-            log("warn", "[Logger-Hooks] Invalid event type for %s: %s", hook_name, type(event))
-            return
+        if type(event) ~= "table" then return; end
+
+        local metadata = {
+            timestamp    = os.date("!%Y-%m-%dT%H:%M:%SZ"),
+            event        = hook_name,
+            origin_type  = safe_get(event, "origin", "type"),
+            origin_jid   = safe_get(event, "origin", "full_jid"),
+            ip           = safe_get(event, "origin", "conn", "ip"),
+            is_admin     = safe_get(event, "origin", "jitsi_meet_context_user", "is_admin"),
+            room_jid     = safe_get(event, "room", "jid"),
+            room_name    = safe_get(event, "room", "_data", "name"),
+            occupant_jid = tostring(safe_get(event, "occupant", "nick") or ""),
+            actor        = tostring(safe_get(event, "actor") or ""),
+            role         = safe_get(event, "occupant", "role"),
+            affiliation  = safe_get(event, "occupant", "affiliation"),
+            nick         = tostring(safe_get(event, "nick") or ""),
+            stanza_name  = safe_get(event, "stanza", "name"),
+        };
+
+        metadata.raw_event = sanitize(event);
+
+        local success, json_string = pcall(cjson.encode, metadata);
+
+        if success then
+            log("info", json_string);
+        else
+            log("error", "[Armored-Logger] FATAL: Failed to encode event '%s'. Reason: %s", hook_name, tostring(json_string));
         end
-
-        -- Логируем строковое представление event для дебага
-        log("debug", "[Logger-Hooks] %s event debug string: %s", hook_name, tostring(event))
-
-        local metadata = extract_event_metadata(hook_name, event)
-        local json_output = encode_event_to_json(metadata, event)
-        if not json_output then return end
-        log("debug", "[Logger-Hooks] %s %s", hook_name, json_output)
     end
 end
 
-log_info("Attaching hooks with priority %d...", HOOK_PRIORITY)
-
-for _, hook in ipairs(HOOKS_TO_LOG) do
-    local handler = make_hook_logger(hook)
-    module:hook(hook, handler, HOOK_PRIORITY)
-    module:hook_global(hook, handler, HOOK_PRIORITY)
+module:log("info", "[Armored-Logger] Attaching %d hooks with priority %d...", #HOOKS_TO_LOG, HOOK_PRIORITY);
+for _, hook_name in ipairs(HOOKS_TO_LOG) do
+    module:hook(hook_name, make_hook_logger(hook_name), HOOK_PRIORITY);
 end
-
-log_info("All diagnostic hooks attached.")
+module:log("info", "[Armored-Logger] All diagnostic hooks attached.");
