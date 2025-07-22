@@ -112,6 +112,7 @@ local function make_hook_logger(hook_name)
         if success then
             log("info", "[Hook-Logger] %s %s", hook_name, json_string)
         else
+            log("error", "[Hook-Logger] Failed to encode metadata for '%s': %s", hook_name, tostring(metadata))
             log("error", "[Hook-Logger] FATAL: Failed to encode event '%s'. Reason: %s", hook_name, tostring(json_string))
         end
     end
