@@ -10,22 +10,57 @@ local LOG_FULL_OBJECT   = module:get_option_boolean("logger_hooks_log_full_objec
 
 -- --- HOOKS TO LOG ---
 local HOOKS_TO_LOG = {
-    -- Сессии
-    "user-authenticated", "user-authentication-success", "user-authentication-failure",
-    "session-created", "session-started", "session-closed",
+    -- Сессии и аутентификация
+    "user-registered",
+    "user-authentication-success",
+    "user-authentication-failure",
+    "user-authenticated",
+    "resource-bind",
+    "session-created",
+    "session-pre-bind",
+    "session-bind",
+    "session-started",
+    "session-resumed",
+    "session-closed",
 
-    -- MUC
-    "muc-room-created", "muc-room-destroyed",
-    "muc-occupant-joined", "muc-occupant-left", "muc-occupant-role-changed",
-    "muc-set-role", "muc-set-affiliation", "muc-privilege-request",
+    -- MUC: создание, удаление, конфиг
+    "muc-room-pre-create",
+    "muc-room-created",
+    "muc-room-destroyed",
+    "muc-config-submitted",
+    "muc-room-config-changed",
 
-    -- Stanza
-    "pre-message/full", "pre-presence/full", "pre-iq/full",
-    "message/full", "presence/full", "iq/full",
+    -- MUC: участники
+    "muc-occupant-pre-join",
+    "muc-occupant-joined",
+    "muc-occupant-role-changed",
+    "muc-occupant-left",
 
-    -- JWT
-    "jitsi-meet-token-accepted", "jitsi-meet-token-rejected", "jitsi-meet-token-check",
-}
+    -- MUC: модерация
+    "muc-set-role",
+    "muc-set-affiliation",
+    "muc-privilege-request",
+
+    -- MUC: сообщения
+    "muc-broadcast-message",
+    "muc-privmsg",
+
+    -- STANZAS: приём перед обработкой
+    "pre-presence/full",
+    "pre-message/full",
+    "pre-iq/full",
+
+    -- STANZAS: после обработки
+    "presence/full",
+    "message/full",
+    "iq/full",
+
+    -- Отладочные/специфичные
+    "jitsi-meet-token-accepted",
+    "jitsi-meet-token-rejected",
+    "jitsi-meet-token-check",
+    "authentication-success",
+    "authentication-failure",}
 
 -- --- METADATA EXTRACTION ---
 local function extract_event_metadata(event)
@@ -84,8 +119,14 @@ end
 log("info", "[Logger-Hooks] Attaching hooks with priority %d...", HOOK_PRIORITY)
 
 for _, hook in ipairs(HOOKS_TO_LOG) do
-    module:hook(hook, log_hook_event, HOOK_PRIORITY)
-    module:hook_global(hook, log_hook_event, HOOK_PRIORITY)
+    local function wrap_hook_handler(hook_name)
+        return function(event)
+            event.event = hook_name -- <-- вставляем имя хука прямо в событие
+            log_hook_event(event)
+        end
+    end
+    module:hook(hook, wrap_hook_handler(hook), HOOK_PRIORITY)
+    module:hook_global(hook, wrap_hook_handler(hook), HOOK_PRIORITY)
 end
 
 log("info", "[Logger-Hooks] All diagnostic hooks attached.")
