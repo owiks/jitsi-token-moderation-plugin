@@ -49,31 +49,45 @@ local function log_info(fmt, ...)
     log("info", "[Logger-Hooks] " .. fmt, ...)
 end
 
--- Рекурсивно очищаем таблицу от функций, userdata и прочего
-local function sanitize_for_json(obj, depth)
+-- Улучшенный sanitize_for_json с трекером циклов и глубиной
+local function sanitize_for_json(obj, depth, seen)
     depth = depth or 0
     if depth > 10 then
-        -- Ограничение по глубине, чтобы избежать бесконечной рекурсии
         return "<max_depth_reached>"
     end
+    seen = seen or {}
+
     local t = type(obj)
     if t == "table" then
+        if seen[obj] then
+            return "<circular_reference>"
+        end
+        seen[obj] = true
+
         local clean = {}
         for k, v in pairs(obj) do
             local kt = type(k)
-            local vt = type(v)
-            -- Ключ должен быть string или number, иначе пропускаем
-            if (kt == "string" or kt == "number") then
-                if vt == "table" then
-                    clean[k] = sanitize_for_json(v, depth + 1)
-                elseif vt == "string" or vt == "number" or vt == "boolean" or vt == "nil" then
-                    clean[k] = v
-                else
-                    clean[k] = "<" .. vt .. ">"
-                end
+            if kt ~= "string" and kt ~= "number" then
+                -- Пропускаем ключи не строкового и числового типа
+                goto continue
             end
+
+            local vt = type(v)
+            if vt == "table" then
+                clean[k] = sanitize_for_json(v, depth + 1, seen)
+            elseif vt == "string" or vt == "number" or vt == "boolean" or vt == "nil" then
+                clean[k] = v
+            else
+                clean[k] = "<" .. vt .. ">"
+            end
+
+            ::continue::
         end
+
+        -- Очищаем tracked объект из seen, чтобы корректно обрабатывать другие ветки
+        seen[obj] = nil
         return clean
+
     elseif t == "string" or t == "number" or t == "boolean" or t == "nil" then
         return obj
     else
@@ -97,14 +111,13 @@ local function extract_event_metadata(hook_name, event)
         affiliation  = event.occupant and event.occupant.affiliation or nil,
         nick         = event.nick and tostring(event.nick) or nil,
         stanza_name  = event.stanza and event.stanza.name or nil,
-        -- Не передаем сюда оригинальный event, передадим "очищенный" ниже
     }
 end
 
 local function encode_event_to_json(event_meta, raw_event)
     local clean_event = sanitize_for_json(raw_event)
     local combined = {}
-    for k,v in pairs(event_meta) do combined[k] = v end
+    for k, v in pairs(event_meta) do combined[k] = v end
     combined.raw_event = clean_event
     local ok, encoded = pcall(cjson.encode, combined)
     if not ok then
