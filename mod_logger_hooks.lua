@@ -104,8 +104,8 @@ local function make_hook_logger(hook_name)
         }
 
         log("debug", "[Hook-Logger] Sanitizing event for JSON serialization")
-        metadata.raw_event = sanitize(event)
-        log("debug", "[Hook-Logger] Sanitized event: %s", tostring(metadata.raw_event) or "<nil>")
+        --metadata.raw_event = sanitize(event)
+        --log("debug", "[Hook-Logger] Sanitized event: %s", tostring(metadata.raw_event) or "<nil>")
 
         local success, json_string = pcall(cjson.encode, metadata)
 
