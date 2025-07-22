@@ -67,9 +67,8 @@ local function encode_event_to_json(event_meta)
         end
     end
 
-    if LOG_RAW_EVENT and event_meta.raw then
-        clean.raw = "[raw event omitted]"
-    end
+    event_meta.raw = nil
+    clean.event_debug = tostring(event_meta)
 
     local ok, encoded = pcall(cjson.encode, clean)
     if not ok then
