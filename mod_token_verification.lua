@@ -103,7 +103,7 @@ end
 
 module:hook("muc-room-pre-create", function(event)
     local origin, stanza = event.origin, event.stanza;
-    module:log("info", "pre create: %s %s", tostring(origin), tostring(stanza)); end
+    module:log("info", "pre create: %s %s", tostring(origin), tostring(stanza));
     if not verify_user(origin, stanza) then
         measure_fail(1);
         return true;
@@ -113,7 +113,7 @@ end, 99);
 
 module:hook("muc-occupant-pre-join", function(event)
     local origin, room, stanza = event.origin, event.room, event.stanza;
-    module:log("info", "pre join: %s %s", tostring(room), tostring(stanza)); end
+    module:log("info", "pre join: %s %s", tostring(room), tostring(stanza));
     if not verify_user(origin, stanza) then
         measure_fail(1);
         return true;
