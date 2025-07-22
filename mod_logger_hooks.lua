@@ -57,16 +57,20 @@ local function extract_event_metadata(hook_name, event)
 end
 
 -- --- JSON ENCODER ---
+-- --- JSON ENCODER ---
 local function encode_event_to_json(event_meta)
     local clean = {}
+
     for k, v in pairs(event_meta) do
         if k ~= "raw" then
             clean[k] = v
         end
     end
+
     if LOG_RAW_EVENT and event_meta.raw then
-        clean["raw"] = "[raw event omitted]"
+        clean.raw = "[raw event omitted]"
     end
+
     local ok, encoded = pcall(cjson.encode, clean)
     if not ok then
         log("error", "[Logger-Hooks] Failed to encode event '%s': %s", tostring(event_meta.event), tostring(encoded))
