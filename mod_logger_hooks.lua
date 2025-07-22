@@ -68,7 +68,6 @@ local function sanitize_for_json(obj, depth, seen)
         for k, v in pairs(obj) do
             local kt = type(k)
             if kt ~= "string" and kt ~= "number" then
-                -- Пропускаем ключи не строкового и числового типа
                 goto continue
             end
 
@@ -78,19 +77,20 @@ local function sanitize_for_json(obj, depth, seen)
             elseif vt == "string" or vt == "number" or vt == "boolean" or vt == "nil" then
                 clean[k] = v
             else
+                -- ВАЖНО: пропускаем функции, userdata, threads и т.п.
                 clean[k] = "<" .. vt .. ">"
             end
 
             ::continue::
         end
 
-        -- Очищаем tracked объект из seen, чтобы корректно обрабатывать другие ветки
         seen[obj] = nil
         return clean
 
     elseif t == "string" or t == "number" or t == "boolean" or t == "nil" then
         return obj
     else
+        -- Пропускаем функции и др. типы — заменяем на строку
         return "<" .. t .. ">"
     end
 end
