@@ -1,143 +1,125 @@
--- Token authentication
--- Copyright (C) 2021-present 8x8, Inc.
-
 local log = module._log;
-local host = module.host;
-local st = require "util.stanza";
-local jid_split = require 'util.jid'.split;
-local jid_bare = require 'util.jid'.bare;
+local cjson = require "cjson";
 
-local util = module:require 'util';
-local is_admin = util.is_admin;
+module:log("info", "[Hook-Logger] Module loaded.");
 
-local DEBUG = false;
+local HOOKS_TO_LOG = {
+    "user-registered", "user-authentication-success", "user-authentication-failure",
+    "user-authenticated", "resource-bind", "session-created", "session-pre-bind",
+    "session-bind", "session-started", "session-resumed", "session-closed",
+    "muc-room-pre-create", "muc-room-created", "muc-room-destroyed",
+    "muc-config-submitted", "muc-room-config-changed", "muc-occupant-pre-join",
+    "muc-occupant-joined", "muc-occupant-role-changed", "muc-occupant-left",
+    "muc-set-role", "muc-set-affiliation", "muc-privilege-request",
+    "muc-broadcast-message", "muc-privmsg", "pre-presence/full", "pre-message/full",
+    "pre-iq/full", "presence/full", "message/full", "iq/full",
+    "jitsi-meet-token-accepted", "jitsi-meet-token-rejected", "jitsi-meet-token-check",
+    "authentication-success", "authentication-failure",
+}
+local HOOK_PRIORITY = -100;
 
-local measure_success = module:measure('success', 'counter');
-local measure_fail = module:measure('fail', 'counter');
-
-local parentHostName = string.gmatch(tostring(host), "%w+.(%w.+)")();
-if parentHostName == nil then
-    module:log("error", "Failed to start - unable to get parent hostname");
-    return;
-end
-
-local parentCtx = module:context(parentHostName);
-if parentCtx == nil then
-    module:log("error",
-        "Failed to start - unable to get parent context for host: %s",
-        tostring(parentHostName));
-    return;
-end
-
-local token_util = module:require "token/util".new(parentCtx);
-
--- no token configuration
-if token_util == nil then
-    module:log("error", "Token utility not initialized. Check mod_auth_token configuration.");
-    return;
-end
-
-local inspect = require "inspect"
-
-if not token_util.appId or token_util.appId == "" then
-    module:log("error", "'app_id' must not be empty (host: %s), token_util: %s", tostring(module.host), inspect(token_util));
-end
-
-if (not token_util.appSecret or token_util.appSecret == "") and not token_util.asapKeyServer then
-    module:log("error", "'app_secret' or 'asap_key_server' must not be empty");
-end
-
-module:log("info",
-    "%s - starting MUC token verifier app_id: %s app_secret: %s allow empty: %s",
-    tostring(host), tostring(token_util.appId), tostring(token_util.appSecret),
-    tostring(token_util.allowEmptyToken));
-
--- option to disable room modification (sending muc config form) for guest that do not provide token
-local require_token_for_moderation;
--- option to allow domains to skip token verification
-local allowlist;
-local function load_config()
-    require_token_for_moderation = module:get_option_boolean("token_verification_require_token_for_moderation");
-    allowlist = module:get_option_set('token_verification_allowlist', {});
-end
-load_config();
-
--- verify user and whether he is allowed to join a room based on the token information
-local function verify_user(session, stanza)
-    module:log("info", "Session token: %s, session room: %s",
-            tostring(session.auth_token), tostring(session.jitsi_meet_room));
-
-    -- token not required for admin users
-    local user_jid = stanza.attr.from;
-    if is_admin(user_jid) then
-        module:log("info", "Token not required from admin user: %s", user_jid); end
-        return true;
+local function sanitize(data, seen, depth)
+    depth = depth or 0
+    if depth > 15 then
+        log("debug", "[Hook-Logger][sanitize] Max depth reached at depth %d", depth)
+        return "<max_depth_reached>"
     end
 
-    -- token not required for users matching allow list
-    local user_bare_jid = jid_bare(user_jid);
-    local _, user_domain = jid_split(user_jid);
-
-    -- allowlist for participants
-    if allowlist:contains(user_domain) or allowlist:contains(user_bare_jid) then
-        module:log("info", "Token not required from user in allow list: %s", user_jid); end
-        return true;
+    local data_type = type(data)
+    if data_type ~= "table" then
+        local simple = (data_type == "string" or data_type == "number" or data_type == "boolean" or data == nil)
+        if not simple then
+            log("debug", "[Hook-Logger][sanitize] Non-simple type %s encountered: %s", data_type, tostring(data))
+        end
+        return simple and data or string.format("<%s>", data_type)
     end
 
-    module:log("info", "Will verify token for user: %s, room: %s ", user_jid, stanza.attr.to); end
-    if not token_util:verify_room(session, stanza.attr.to) then
-        module:log("error", "Token %s not allowed to join: %s",
-            tostring(session.auth_token), tostring(stanza.attr.to));
-        session.send(
-            st.error_reply(
-                stanza, "cancel", "not-allowed", "Room and token mismatched"));
-        return false; -- we need to just return non nil
+    if not seen then seen = {} end
+    if seen[data] then
+        log("debug", "[Hook-Logger][sanitize] Circular reference detected at depth %d", depth)
+        return "<Circular Reference>"
     end
-    module:log("info", "allowed: %s to enter/create room: %s", user_jid, stanza.attr.to); end
-    return true;
+    seen[data] = true
+
+    local clean_table = {}
+    for k, v in pairs(data) do
+        local kt = type(k)
+        if kt == "string" or kt == "number" then
+            log("trace", "[Hook-Logger][sanitize] Processing key '%s' of type '%s' at depth %d", tostring(k), kt, depth)
+            local vt = type(v)
+            if vt == "table" then
+                clean_table[k] = sanitize(v, seen, depth + 1)
+            elseif vt == "string" or vt == "number" or vt == "boolean" or vt == "nil" then
+                clean_table[k] = v
+            else
+                log("debug", "[Hook-Logger][sanitize] Unsupported value type '%s' at key '%s'", vt, tostring(k))
+                clean_table[k] = string.format("<%s>", vt)
+            end
+        else
+            log("debug", "[Hook-Logger][sanitize] Unsupported key type '%s' at depth %d", kt, depth)
+        end
+    end
+
+    seen[data] = nil
+    return clean_table
 end
 
-module:hook("muc-room-pre-create", function(event)
-    local origin, stanza = event.origin, event.stanza;
-    module:log("info", "pre create: %s %s", tostring(origin), tostring(stanza)); end
-    if not verify_user(origin, stanza) then
-        measure_fail(1);
-        return true;
+local function safe_get(root, ...)
+    local current = root
+    for i = 1, select('#', ...) do
+        local key = select(i, ...)
+        if type(current) ~= "table" or current[key] == nil then
+            log("debug", "[Hook-Logger][safe_get] Missing key '%s' at depth %d", tostring(key), i)
+            return nil
+        end
+        current = current[key]
     end
-    measure_success(1);
-end, 99);
+    return current
+end
 
-module:hook("muc-occupant-pre-join", function(event)
-    local origin, room, stanza = event.origin, event.room, event.stanza;
-    module:log("info", "pre join: %s %s", tostring(room), tostring(stanza)); end
-    if not verify_user(origin, stanza) then
-        measure_fail(1);
-        return true;
-    end
-    measure_success(1);
-end, 99);
-
-for event_name, method in pairs {
-    -- Normal room interactions
-    ["iq-set/bare/http://jabber.org/protocol/muc#owner:query"] = "handle_owner_query_set_to_room" ;
-    -- Host room
-    ["iq-set/host/http://jabber.org/protocol/muc#owner:query"] = "handle_owner_query_set_to_room" ;
-} do
-    module:hook(event_name, function (event)
-        local session, stanza = event.origin, event.stanza;
-
-        if not require_token_for_moderation or is_admin(stanza.attr.from) then
-            return;
+local function make_hook_logger(hook_name)
+    return function(event)
+        if type(event) ~= "table" then
+            log("warn", "[Hook-Logger] Invalid event type for %s: %s", hook_name, type(event))
+            return
         end
 
-        if not session.auth_token or not session.jitsi_meet_room then
-            session.send(
-                st.error_reply(
-                    stanza, "cancel", "not-allowed", "Room modification disabled for guests"));
-            return true;
-        end
+        log("debug", "[Hook-Logger] %s event debug string: %s", hook_name, tostring(event))
 
-    end, -1);
+        local metadata = {
+            timestamp   = os.date("!%Y-%m-%dT%H:%M:%SZ"),
+            event       = hook_name,
+            origin_type = safe_get(event, "origin", "type"),
+            origin_jid  = safe_get(event, "origin", "full_jid"),
+            --ip           = safe_get(event, "origin", "conn", "ip"),
+            --is_admin     = safe_get(event, "origin", "jitsi_meet_context_user", "is_admin"),
+            room_jid    = safe_get(event, "room", "jid"),
+            room_name   = safe_get(event, "room", "_data", "name"),
+            --occupant_jid = tostring(safe_get(event, "occupant", "nick") or ""),
+            --actor        = tostring(safe_get(event, "actor") or ""),
+            role        = safe_get(event, "occupant", "role"),
+            affiliation = safe_get(event, "occupant", "affiliation"),
+            --nick         = tostring(safe_get(event, "nick") or ""),
+            --stanza_name  = safe_get(event, "stanza", "name"),
+        }
+
+        log("debug", "[Hook-Logger] Sanitizing event for JSON serialization")
+        --metadata.raw_event = sanitize(event)
+        --log("debug", "[Hook-Logger] Sanitized event: %s", tostring(metadata.raw_event) or "<nil>")
+
+        local success, json_string = pcall(cjson.encode, metadata)
+
+        if success then
+            log("info", "[Hook-Logger] %s %s", hook_name, json_string)
+        else
+            log("error", "[Hook-Logger] Failed to encode metadata for '%s': %s", hook_name, tostring(metadata))
+            log("error", "[Hook-Logger] FATAL: Failed to encode event '%s'. Reason: %s", hook_name, tostring(json_string))
+        end
+    end
 end
 
-module:hook_global('config-reloaded', load_config);
+module:log("info", "[Hook-Logger] Attaching %d hooks with priority %d...", #HOOKS_TO_LOG, HOOK_PRIORITY)
+for _, hook_name in ipairs(HOOKS_TO_LOG) do
+    module:hook(hook_name, make_hook_logger(hook_name), HOOK_PRIORITY)
+end
+module:log("info", "[Hook-Logger] All diagnostic hooks attached.")
