@@ -9,57 +9,16 @@ local LOG_RAW_EVENT = module:get_option_boolean("logger_hooks_log_raw", false)
 
 -- --- HOOKS TO LOG ---
 local HOOKS_TO_LOG = {
-    -- Сессии и аутентификация
-    "user-registered",
-    "user-authentication-success",
-    "user-authentication-failure",
-    "user-authenticated",
-    "resource-bind",
-    "session-created",
-    "session-pre-bind",
-    "session-bind",
-    "session-started",
-    "session-resumed",
-    "session-closed",
-
-    -- MUC: создание, удаление, конфиг
-    "muc-room-pre-create",
-    "muc-room-created",
-    "muc-room-destroyed",
-    "muc-config-submitted",
-    "muc-room-config-changed",
-
-    -- MUC: участники
-    "muc-occupant-pre-join",
-    "muc-occupant-joined",
-    "muc-occupant-role-changed",
-    "muc-occupant-left",
-
-    -- MUC: модерация
-    "muc-set-role",
-    "muc-set-affiliation",
-    "muc-privilege-request",
-
-    -- MUC: сообщения
-    "muc-broadcast-message",
-    "muc-privmsg",
-
-    -- STANZAS: приём перед обработкой
-    "pre-presence/full",
-    "pre-message/full",
-    "pre-iq/full",
-
-    -- STANZAS: после обработки
-    "presence/full",
-    "message/full",
-    "iq/full",
-
-    -- Отладочные/специфичные
-    "jitsi-meet-token-accepted",
-    "jitsi-meet-token-rejected",
-    "jitsi-meet-token-check",
-    "authentication-success",
-    "authentication-failure",
+    "user-registered", "user-authentication-success", "user-authentication-failure", "user-authenticated",
+    "resource-bind", "session-created", "session-pre-bind", "session-bind", "session-started", "session-resumed", "session-closed",
+    "muc-room-pre-create", "muc-room-created", "muc-room-destroyed", "muc-config-submitted", "muc-room-config-changed",
+    "muc-occupant-pre-join", "muc-occupant-joined", "muc-occupant-role-changed", "muc-occupant-left",
+    "muc-set-role", "muc-set-affiliation", "muc-privilege-request",
+    "muc-broadcast-message", "muc-privmsg",
+    "pre-presence/full", "pre-message/full", "pre-iq/full",
+    "presence/full", "message/full", "iq/full",
+    "jitsi-meet-token-accepted", "jitsi-meet-token-rejected", "jitsi-meet-token-check",
+    "authentication-success", "authentication-failure",
 }
 
 -- --- LOG WRAPPER ---
@@ -69,35 +28,44 @@ end
 
 -- --- METADATA EXTRACTION ---
 local function extract_event_metadata(hook_name, event)
+    local stanza_text = nil
+    if event.stanza and event.stanza.top_tag then
+        pcall(function() stanza_text = event.stanza:top_tag() end)
+    elseif event.stanza then
+        stanza_text = tostring(event.stanza)
+    end
+
     return {
-        timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ"),
-        event = hook_name,
-        origin_type = event.origin and event.origin.type or nil,
-        stanza_name = event.stanza and event.stanza.name or nil,
-        room_jid = event.room and event.room.jid or nil,
-        occupant_jid = event.occupant and tostring(event.occupant.nick) or nil,
-        role = event.occupant and event.occupant.role or nil,
-        nick = event.nick and tostring(event.nick) or nil,
-        actor = event.actor and tostring(event.actor) or nil,
-        raw = LOG_RAW_EVENT and event or nil
+        timestamp      = os.date("!%Y-%m-%dT%H:%M:%SZ"),
+        event          = hook_name,
+        origin_type    = event.origin and event.origin.type or nil,
+        origin_jid     = event.origin and event.origin.full_jid or nil,
+        ip             = event.origin and event.origin.conn and event.origin.conn.ip or nil,
+        is_admin       = event.origin and event.origin.jitsi_meet_context_user and event.origin.jitsi_meet_context_user.is_admin or nil,
+        room_jid       = event.room and event.room.jid or nil,
+        room_name      = event.room and event.room._data and event.room._data.name or nil,
+        occupant_jid   = event.occupant and tostring(event.occupant.nick) or nil,
+        actor          = event.actor and tostring(event.actor) or nil,
+        role           = event.occupant and event.occupant.role or nil,
+        affiliation    = event.occupant and event.occupant.affiliation or nil,
+        nick           = event.nick and tostring(event.nick) or nil,
+        stanza_name    = event.stanza and event.stanza.name or nil,
+        stanza_raw     = stanza_text,
+        event_debug    = tostring(event),
+        raw            = LOG_RAW_EVENT and event or nil
     }
 end
 
 -- --- JSON ENCODER ---
 local function encode_event_to_json(event_meta)
-    local clean = {
-        timestamp = event_meta.timestamp,
-        event = event_meta.event,
-        origin_type = event_meta.origin_type,
-        stanza_name = event_meta.stanza_name,
-        room_jid = event_meta.room_jid,
-        occupant_jid = event_meta.occupant_jid,
-        role = event_meta.role,
-        nick = event_meta.nick,
-        actor = event_meta.actor,
-    }
+    local clean = {}
+    for k, v in pairs(event_meta) do
+        if k ~= "raw" then
+            clean[k] = v
+        end
+    end
     if LOG_RAW_EVENT and event_meta.raw then
-        clean.raw = "[raw event omitted]"
+        clean["raw"] = "[raw event omitted]"
     end
     local ok, encoded = pcall(cjson.encode, clean)
     if not ok then
