@@ -29,6 +29,8 @@ if parentCtx == nil then
     return;
 end
 
+module:log("info", "Parent context: %s HOST %s", tostring(parentCtx), tostring(host));
+
 local token_util = module:require "token/util".new(parentCtx);
 
 -- no token configuration
@@ -101,7 +103,7 @@ end
 
 module:hook("muc-room-pre-create", function(event)
     local origin, stanza = event.origin, event.stanza;
-    module:log("info", "pre create: %s %s", tostring(origin), tostring(stanza));
+    module:log("info", "pre create: %s %s", tostring(origin), tostring(stanza)); end
     if not verify_user(origin, stanza) then
         measure_fail(1);
         return true;
@@ -111,7 +113,7 @@ end, 99);
 
 module:hook("muc-occupant-pre-join", function(event)
     local origin, room, stanza = event.origin, event.room, event.stanza;
-    module:log("info", "pre join: %s %s", tostring(room), tostring(stanza));
+    module:log("info", "pre join: %s %s", tostring(room), tostring(stanza)); end
     if not verify_user(origin, stanza) then
         measure_fail(1);
         return true;
@@ -120,7 +122,9 @@ module:hook("muc-occupant-pre-join", function(event)
 end, 99);
 
 for event_name, method in pairs {
+    -- Normal room interactions
     ["iq-set/bare/http://jabber.org/protocol/muc#owner:query"] = "handle_owner_query_set_to_room" ;
+    -- Host room
     ["iq-set/host/http://jabber.org/protocol/muc#owner:query"] = "handle_owner_query_set_to_room" ;
 } do
     module:hook(event_name, function (event)
