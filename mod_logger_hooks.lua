@@ -69,7 +69,6 @@ local function safe_get(root, ...)
     for i = 1, select('#', ...) do
         local key = select(i, ...)
         if type(current) ~= "table" or current[key] == nil then
-            log("debug", "[Hook-Logger][safe_get] Missing key '%s' at depth %d", tostring(key), i)
             return nil
         end
         current = current[key]
@@ -95,11 +94,11 @@ local function make_hook_logger(hook_name)
             --is_admin     = safe_get(event, "origin", "jitsi_meet_context_user", "is_admin"),
             room_jid     = safe_get(event, "room", "jid"),
             room_name    = safe_get(event, "room", "_data", "name"),
-            --occupant_jid = tostring(safe_get(event, "occupant", "nick") or ""),
+            occupant_jid = tostring(safe_get(event, "occupant", "nick") or ""),
             --actor        = tostring(safe_get(event, "actor") or ""),
             role         = safe_get(event, "occupant", "role"),
             affiliation  = safe_get(event, "occupant", "affiliation"),
-            --nick         = tostring(safe_get(event, "nick") or ""),
+            nick         = tostring(safe_get(event, "nick") or ""),
             --stanza_name  = safe_get(event, "stanza", "name"),
         }
 
