@@ -144,22 +144,21 @@ module:hook("muc-occupant-pre-join", function(event)
         return;
     end
 
+    local bare_jid = jid_bare(occupant.nick);
+    if not bare_jid then
+        log('error', TAG .. ' occupant.nick is malformed or nil — skipping affiliation check');
+        return;
+    end
+
     log('debug', TAG .. ' muc-occupant-pre-join: occupant.nick=' .. tostring(occupant.nick)
-        .. ', occupant.jid=' .. tostring(occupant.jid)
         .. ', origin.type=' .. tostring(origin.type)
         .. ', origin.full_jid=' .. tostring(origin.full_jid)
         .. ', room.jid=' .. tostring(room.jid)
-        .. ', user_roles[bare_nick]=' .. tostring(room._data.user_roles and room._data.user_roles[jid_bare(occupant.nick)])
+        .. ', user_roles[bare_jid]=' .. tostring(room._data.user_roles and room._data.user_roles[bare_jid])
         .. ', is_moderator=' .. tostring(origin.is_moderator));
 
     setupAffiliation(room, origin, occupant.nick);
 
-    if not occupant.jid then
-        log('error', TAG .. ' occupant.jid is nil — skipping affiliation check');
-        return;
-    end
-
-    local bare_jid = jid_bare(occupant.jid);
     local affiliation = room:get_affiliation(bare_jid);
     local role = occupant.role or "nil";
     log('info', TAG .. string.format(' [PREJOIN] %s affiliation=%s role=%s', bare_jid, affiliation or "nil", role));
