@@ -154,21 +154,31 @@ module:hook("muc-room-created", function(event)
     -- Override set_affiliation to prevent external role changes
     local original_set_affiliation = room.set_affiliation;
     room.set_affiliation = function(actor, jid, affiliation)
-        log('debug', TAG .. string.format(
-            ' [PROTECT] set_affiliation called: actor=%s, jid=%s, affiliation=%s',
-            tostring(actor), tostring(jid), tostring(affiliation)
-        ));
+        local bare_jid = jid_bare(jid)
 
-        local bare_jid = jid_bare(jid);
+        log('warn', TAG .. string.format(
+            '[AFFILIATION] set_affiliation called: actor=%s, jid=%s, affiliation=%s',
+            tostring(actor), tostring(bare_jid), tostring(affiliation)
+        ))
+
+        log('warn', TAG .. 'Stacktrace:\n' .. debug.traceback("", 2))
+
+        local info = debug.getinfo(2, "nSl")
+        log('warn', TAG .. string.format(
+            'Called from: %s:%d (%s)',
+            info.short_src, info.currentline, tostring(info.name)
+        ))
+
         if actor ~= TOKEN_ACTOR and room._data.user_roles and room._data.user_roles[bare_jid] ~= nil then
             log('warn', TAG .. string.format(
-                ' [PROTECT] Blocked external set_affiliation from %s for %s to %s',
+                'Blocked external set_affiliation from %s for %s to %s',
                 tostring(actor), tostring(bare_jid), tostring(affiliation)
-            ));
-            return nil, "not-allowed";
+            ))
+            return nil, "not-allowed"
         end
-        return original_set_affiliation(actor, jid, affiliation);
-    end;
+
+        return original_set_affiliation(actor, jid, affiliation)
+    end
 end, math.huge);
 
 -- Hook for muc-occupant-pre-join
@@ -201,7 +211,10 @@ module:hook("muc-occupant-pre-join", function(event)
 
     if is_moderator or affiliation == "owner" then
         occupant.role = "moderator"; -- Force role to moderator
-        log('info', TAG .. string.format(' [PREJOIN] Forcing role=moderator for %s (is_moderator=%s, affiliation=%s)', bare_jid, tostring(is_moderator), tostring(affiliation)));
+        log('info',
+            TAG ..
+            string.format(' [PREJOIN] Forcing role=moderator for %s (is_moderator=%s, affiliation=%s)', bare_jid,
+                tostring(is_moderator), tostring(affiliation)));
     end
 
     local role = occupant.role or "nil";
