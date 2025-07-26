@@ -46,6 +46,7 @@ local NOTIFY_LOBBY_ACCESS_GRANTED = 'LOBBY-ACCESS-GRANTED';
 local NOTIFY_LOBBY_ACCESS_DENIED = 'LOBBY-ACCESS-DENIED';
 
 local util = module:require "util";
+local poltergeist = module:require "poltergeist";
 local ends_with = util.ends_with;
 local is_admin = util.is_admin;
 local get_room_by_name_and_subdomain = util.get_room_by_name_and_subdomain;
@@ -257,6 +258,18 @@ function handle_admin_query_set_command_item(self, origin, stanza, item)
         origin.send(st.error_reply(stanza, "cancel", "bad-request"));
         return true;
     end
+
+    local count = 0;
+    for _, occupant in self:each_occupant() do
+        if occupant.jid and not occupant.jid:find("poltergeist@") then
+            count = count + 1;
+        end
+    end
+    if count == 0 then
+        module:log("info", "[LOBBY_AUTOSTART] No real occupants, spawning poltergeist");
+        poltergeist.spawn(self);
+    end
+
     if item.attr.jid then -- Validate provided JID
         item.attr.jid = jid_prep(item.attr.jid);
         if not item.attr.jid then
@@ -287,25 +300,28 @@ function handle_admin_query_set_command_item(self, origin, stanza, item)
     local reason = item:get_child_text("reason");
     local success, errtype, err
     if item.attr.affiliation and item.attr.jid and not item.attr.role then
-        module:log("debug", "Setting affiliation for %s (%s) to %s", item.attr.jid, item.attr.nick, item.attr.affiliation);
-        if not is_admin(actor) then
+        module:log("debug", "Setting affiliation for %s (%s) to %s by %s", item.attr.jid, item.attr.nick, item.attr.affiliation, actor);
+        if is_admin(actor) then
             module:log("warn", "Blocked set_affiliation from non-admin actor: %s", actor);
             origin.send(st.error_reply(stanza, "cancel", "not-allowed", "Only admins may change affiliation"));
             return true;
         end
         local registration_data;
         if item.attr.nick then
-            local room_nick = self.jid.."/"..item.attr.nick;
+            local room_nick = self.jid .. "/" .. item.attr.nick;
             local existing_occupant = self:get_occupant_by_nick(room_nick);
             if existing_occupant and existing_occupant.bare_jid ~= item.attr.jid then
-                module:log("debug", "Existing occupant for %s: %s does not match %s", room_nick, existing_occupant.bare_jid, item.attr.jid);
+                module:log("debug", "Existing occupant for %s: %s does not match %s", room_nick,
+                    existing_occupant.bare_jid, item.attr.jid);
                 self:set_role(true, room_nick, nil, "This nickname is reserved");
             end
             module:log("debug", "Reserving %s for %s (%s)", item.attr.nick, item.attr.jid, item.attr.affiliation);
             registration_data = { reserved_nickname = item.attr.nick };
         end
+        module:log("debug", "set_affiliation for %s (%s) to %s by %s", item.attr.jid, item.attr.nick, item.attr.affiliation, actor, reason, registration_data);
         success, errtype, err = self:set_affiliation(actor, item.attr.jid, item.attr.affiliation, reason, registration_data);
     elseif item.attr.role and item.attr.nick and not item.attr.affiliation then
+        module:log("debug", "set_role for %s (%s) to %s by %s", item.attr.jid, item.attr.nick, item.attr.affiliation, actor, reason);
         success, errtype, err = self:set_role(actor, self.jid.."/"..item.attr.nick, item.attr.role, reason);
     else
         success, errtype, err = nil, "cancel", "bad-request";
