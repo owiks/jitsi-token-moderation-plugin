@@ -99,6 +99,24 @@ local function setupAffiliation(room, origin, jid)
     end
 end
 
+module:hook("muc-room-pre-create", function(event)
+    local room = event.room;
+    local origin = event.origin;
+
+    if not room then
+        log('error', TAG .. ' muc-room-pre-create: room is nil');
+        return;
+    end
+
+    if not origin then
+        log('warn', TAG .. ' muc-room-pre-create: origin is nil for room ' .. tostring(room.jid));
+        return;
+    end
+
+    log('debug', TAG .. ' muc-room-pre-create: origin.full_jid=' .. tostring(origin.full_jid));
+    setupAffiliation(room, origin, origin.full_jid);
+end, math.huge);
+
 module:hook("muc-room-created", function(event)
     local room = event.room;
     local origin = event.origin;
@@ -113,11 +131,6 @@ module:hook("muc-room-created", function(event)
         return;
     end
 
-    log('debug', TAG .. ' muc-room-created: origin type=' .. tostring(origin.type)
-        .. ', full_jid=' .. tostring(origin.full_jid)
-        .. ', is_moderator=' .. tostring(origin.is_moderator)
-        .. ', auth_token=' .. tostring(origin.auth_token));
-
     if not origin.full_jid then
         log('warn', TAG .. ' muc-room-created: origin.full_jid is nil');
         return;
@@ -125,13 +138,14 @@ module:hook("muc-room-created", function(event)
 
     local bare_jid = jid_bare(origin.full_jid);
 
-    if origin.is_moderator then
-        log('info', TAG .. string.format(' [SETUP_AFF] Pre-creating affiliation=owner for %s', bare_jid));
-        room:set_affiliation(TOKEN_ACTOR, bare_jid, "owner");
-    else
-        log('info', TAG .. string.format(' [SETUP_AFF] Pre-creating affiliation=member for %s', bare_jid));
-        room:set_affiliation(TOKEN_ACTOR, bare_jid, "member");
+    if is_admin(bare_jid) then
+        log('info', TAG .. string.format(' [SETUP_AFF] %s is admin — skipping affiliation overwrite', bare_jid));
+        return;
     end
+
+    local affiliation = origin.is_moderator and "owner" or "member";
+    log('info', TAG .. string.format(' [SETUP_AFF] Pre-creating affiliation=%s for %s', affiliation, bare_jid));
+    room:set_affiliation(TOKEN_ACTOR, bare_jid, affiliation);
 end, math.huge);
 
 module:hook("muc-occupant-pre-join", function(event)
@@ -178,3 +192,11 @@ module:hook("muc-occupant-left", function(event)
         room._data.user_roles[bare_jid] = nil;
     end
 end, 1);
+
+module:hook("muc-occupant-joined", function(event)
+    local room, occupant = event.room, event.occupant;
+    local bare_jid = jid_bare(occupant.jid);
+    local affiliation = room:get_affiliation(bare_jid);
+    local role = occupant.role or "nil";
+    log('info', TAG .. string.format(' [JOINED] %s affiliation=%s role=%s', bare_jid, affiliation or "nil", role));
+end, 1000);
