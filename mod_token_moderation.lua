@@ -147,7 +147,10 @@ module:hook("muc-occupant-pre-join", function(event)
     log('debug', TAG .. ' muc-occupant-pre-join: occupant.nick=' .. tostring(occupant.nick)
         .. ', occupant.jid=' .. tostring(occupant.jid)
         .. ', origin.type=' .. tostring(origin.type)
-        .. ', origin.full_jid=' .. tostring(origin.full_jid));
+        .. ', origin.full_jid=' .. tostring(origin.full_jid)
+        .. ', room.jid=' .. tostring(room.jid)
+        .. ', user_roles[bare_nick]=' .. tostring(room._data.user_roles and room._data.user_roles[jid_bare(occupant.nick)])
+        .. ', is_moderator=' .. tostring(origin.is_moderator));
 
     setupAffiliation(room, origin, occupant.nick);
 
