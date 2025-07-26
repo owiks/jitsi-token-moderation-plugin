@@ -151,6 +151,11 @@ module:hook("muc-occupant-pre-join", function(event)
 
     setupAffiliation(room, origin, occupant.nick);
 
+    if not occupant.jid then
+        log('error', TAG .. ' occupant.jid is nil — skipping affiliation check');
+        return;
+    end
+
     local bare_jid = jid_bare(occupant.jid);
     local affiliation = room:get_affiliation(bare_jid);
     local role = occupant.role or "nil";
