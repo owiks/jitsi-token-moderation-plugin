@@ -18,6 +18,7 @@ local function decode_token(token)
         log('warn', TAG .. ' [TOKEN] Invalid JWT structure');
         return nil;
     end
+
     local payload = token:sub(dot1 + 1, dot1 + dot2 - 1);
     local ok, decoded = pcall(function()
         return json.decode(basexx.from_url64(payload));
@@ -85,92 +86,16 @@ end
 
 module:hook("muc-room-created", function(event)
     local room = event.room;
-    log('info', TAG .. ' Room created: ' .. room.jid .. ' — enabling token moderation v14');
-    local _set_affiliation = room.set_affiliation;
-    room.set_affiliation = function(room, actor, jid, affiliation, reason)
-        local actor_str = tostring(actor);
-        local actor_bare = jid_bare(actor_str);
-        jid = jid_bare(jid);
-
-        log('info', TAG .. string.format(' [SET_AFF] actor=%s, target=%s, role=%s', actor_str, jid, affiliation));
-
-        if not room or not room.jid then
-            log('error', TAG .. ' Room invalid, bypassing');
-            return _set_affiliation(room, actor, jid, affiliation, reason);
-        end
-
-        local current_affiliation = room:get_affiliation(jid);
-        if current_affiliation == affiliation then
-            log('debug', TAG .. ' [' .. jid .. '] Affiliation already ' .. affiliation .. ', skipping');
-            return true;
-        end
-
-        if actor == TOKEN_ACTOR then
-            log('debug', TAG .. ' [' .. jid .. '] Token plugin managing affiliation');
-            return _set_affiliation(room, actor, jid, affiliation, reason);
-        end
-
-        local hasOwnerAff = false;
-        for jid_aff, aff_name in room:each_affiliation() do
-            if aff_name == "owner" and not is_admin(jid_aff) then
-                hasOwnerAff = true;
-                log('debug', TAG .. ' Owner already exists: ' .. jid_aff);
-                break;
-            end
-        end
-
-        if hasOwnerAff and current_affiliation == "member" and affiliation == "owner" then
-            log('warn', TAG .. ' [' .. jid .. '] Promotion to owner denied: room already has non-admin owner');
-            return nil, "cancel", "not-allowed";
-        end
-
-        local is_moderator_cached = room._data.user_roles and room._data.user_roles[jid];
-        log('debug', TAG .. ' [' .. jid .. '] Cached is_moderator: ' .. tostring(is_moderator_cached));
-
-        if affiliation == "owner" and current_affiliation == "member" and is_moderator_cached then
-            log('debug', TAG .. ' [' .. jid .. '] Already has correct role, ignoring');
-            return false;
-        end
-
-        if is_admin(actor_bare) and affiliation == "owner" then
-            log('warn', TAG .. string.format(' [FOCUS-HANDLER] Admin %s promotes %s. Allowing.', actor_str, jid));
-            local success, err, code = _set_affiliation(room, actor, jid, affiliation, reason);
-            if success and is_moderator_cached == false then
-                log('warn',
-                    TAG .. string.format(' [FOCUS-HANDLER] Reverting %s to member — not moderator per token', jid));
-                _set_affiliation(room, TOKEN_ACTOR, jid, "member", "Role restored from token cache");
-            end
-            return success, err, code;
-        end
-
-        if is_moderator_cached == true and affiliation ~= "owner" then
-            log('error',
-                TAG .. string.format(' [SECURITY] %s tried to demote token-moderator %s — BLOCKED', actor_str, jid));
-            return nil, "modify", "not-acceptable";
-        end
-
-        if is_moderator_cached == false and affiliation == "owner" then
-            log('error',
-                TAG .. string.format(' [SECURITY] %s tried to promote non-moderator %s — BLOCKED', actor_str, jid));
-            return nil, "modify", "not-acceptable";
-        end
-
-        if is_moderator_cached == nil then
-            log('warn', TAG .. string.format(' [GUARD] No cache yet for %s — allowing for now', jid));
-        end
-
-        log('info', TAG .. string.format(' [PASS] Allowing affiliation set for %s by %s', jid, actor_str));
-        return _set_affiliation(room, actor, jid, affiliation, reason);
-    end
-end, -math.huge);
-
-module:hook("muc-room-pre-create", function(event)
-    local room = event.room;
     local origin = event.origin;
-    local stanza = event.stanza;
-    if not origin or not room then return; end
-    setupAffiliation(room, origin, stanza.attr.from);
-end, -math.huge);
+    if not room or not origin or not origin.full_jid then return; end
+    local bare_jid = jid_bare(origin.full_jid);
+    if origin.is_moderator then
+        log('info', TAG .. string.format(' [SETUP_AFF] Pre-creating affiliation=owner for %s', bare_jid));
+        room:set_affiliation(TOKEN_ACTOR, bare_jid, "owner");
+    else
+        room:set_affiliation(TOKEN_ACTOR, bare_jid, "member");
+    end
+end, math.huge);
 
 module:hook("muc-occupant-pre-join", function(event)
     local room = event.room;
@@ -178,7 +103,12 @@ module:hook("muc-occupant-pre-join", function(event)
     local occupant = event.occupant;
     if not occupant or not origin or not room then return; end
     setupAffiliation(room, origin, occupant.nick);
-end);
+
+    local bare_jid = jid_bare(occupant.jid);
+    local affiliation = room:get_affiliation(bare_jid);
+    local role = occupant.role or "nil";
+    log('info', TAG .. string.format(' [PREJOIN] %s affiliation=%s role=%s', bare_jid, affiliation or "nil", role));
+end, 1000);
 
 module:hook("muc-occupant-left", function(event)
     local occupant = event.occupant;
