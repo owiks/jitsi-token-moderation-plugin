@@ -42,7 +42,22 @@ local function decode_token(token)
 end
 
 local function setupAffiliation(room, origin, jid)
-    jid = jid_bare(jid);
+    if not room then
+        log('error', TAG .. ' setupAffiliation: room is nil');
+        return;
+    end
+
+    if not origin then
+        log('warn', TAG .. ' setupAffiliation: origin is nil');
+        return;
+    end
+
+    log('debug', TAG .. ' setupAffiliation: origin type=' .. tostring(origin.type)
+        .. ', full_jid=' .. tostring(origin.full_jid)
+        .. ', is_moderator=' .. tostring(origin.is_moderator)
+        .. ', auth_token=' .. tostring(origin.auth_token));
+
+    jid = jid_bare(jid or "");
 
     if origin.is_moderator == true or origin.is_moderator == false then
         log('debug', TAG .. ' [' .. jid .. '] setupAffiliation called repeatedly — skipping');
@@ -87,12 +102,34 @@ end
 module:hook("muc-room-created", function(event)
     local room = event.room;
     local origin = event.origin;
-    if not room or not origin or not origin.full_jid then return; end
+
+    if not room then
+        log('error', TAG .. ' muc-room-created: room is nil');
+        return;
+    end
+
+    if not origin then
+        log('warn', TAG .. ' muc-room-created: origin is nil for room ' .. tostring(room.jid));
+        return;
+    end
+
+    log('debug', TAG .. ' muc-room-created: origin type=' .. tostring(origin.type)
+        .. ', full_jid=' .. tostring(origin.full_jid)
+        .. ', is_moderator=' .. tostring(origin.is_moderator)
+        .. ', auth_token=' .. tostring(origin.auth_token));
+
+    if not origin.full_jid then
+        log('warn', TAG .. ' muc-room-created: origin.full_jid is nil');
+        return;
+    end
+
     local bare_jid = jid_bare(origin.full_jid);
+
     if origin.is_moderator then
         log('info', TAG .. string.format(' [SETUP_AFF] Pre-creating affiliation=owner for %s', bare_jid));
         room:set_affiliation(TOKEN_ACTOR, bare_jid, "owner");
     else
+        log('info', TAG .. string.format(' [SETUP_AFF] Pre-creating affiliation=member for %s', bare_jid));
         room:set_affiliation(TOKEN_ACTOR, bare_jid, "member");
     end
 end, math.huge);
@@ -101,7 +138,17 @@ module:hook("muc-occupant-pre-join", function(event)
     local room = event.room;
     local origin = event.origin;
     local occupant = event.occupant;
-    if not occupant or not origin or not room then return; end
+
+    if not occupant or not origin or not room then
+        log('warn', TAG .. ' muc-occupant-pre-join: missing room, origin, or occupant');
+        return;
+    end
+
+    log('debug', TAG .. ' muc-occupant-pre-join: occupant.nick=' .. tostring(occupant.nick)
+        .. ', occupant.jid=' .. tostring(occupant.jid)
+        .. ', origin.type=' .. tostring(origin.type)
+        .. ', origin.full_jid=' .. tostring(origin.full_jid));
+
     setupAffiliation(room, origin, occupant.nick);
 
     local bare_jid = jid_bare(occupant.jid);
@@ -113,12 +160,12 @@ end, 1000);
 module:hook("muc-occupant-left", function(event)
     local occupant = event.occupant;
     local room = event.room;
-    if not (room._data and room._data.user_roles and occupant) then
+    if not (room and room._data and room._data.user_roles and occupant) then
+        log('debug', TAG .. ' muc-occupant-left: missing room._data or occupant');
         return;
     end
 
     local bare_jid = jid_bare(occupant.jid);
-
     if room._data.user_roles[bare_jid] ~= nil then
         log('info', TAG .. string.format(' [CACHE-CLEANUP] Removing cached role for %s', bare_jid));
         room._data.user_roles[bare_jid] = nil;
