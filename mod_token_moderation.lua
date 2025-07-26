@@ -41,7 +41,7 @@ local function decode_token(token)
     return decoded;
 end
 
-function setupAffiliation(room, origin, jid)
+local function setupAffiliation(room, origin, jid)
     jid = jid_bare(jid);
 
     if origin.is_moderator == true or origin.is_moderator == false then
@@ -87,13 +87,6 @@ end
 module:hook("muc-room-created", function(event)
     local room = event.room;
     log('info', TAG .. ' Room created: ' .. room.jid .. ' — enabling token moderation v14');
-
-    local _handle_first_presence = room.handle_first_presence;
-    room.handle_first_presence = function(thisRoom, origin, stanza)
-        log('debug', TAG .. ' [' .. stanza.attr.from .. '] handle_first_presence triggered');
-        setupAffiliation(thisRoom, origin, stanza.attr.from);
-        return _handle_first_presence(thisRoom, origin, stanza);
-    end;
 
     local _set_affiliation = room.set_affiliation;
     room.set_affiliation = function(room, actor, jid, affiliation, reason)
@@ -145,19 +138,22 @@ module:hook("muc-room-created", function(event)
             log('warn', TAG .. string.format(' [FOCUS-HANDLER] Admin %s promotes %s. Allowing.', actor_str, jid));
             local success, err, code = _set_affiliation(room, actor, jid, affiliation, reason);
             if success and is_moderator_cached == false then
-                log('warn', TAG .. string.format(' [FOCUS-HANDLER] Reverting %s to member — not moderator per token', jid));
+                log('warn',
+                    TAG .. string.format(' [FOCUS-HANDLER] Reverting %s to member — not moderator per token', jid));
                 _set_affiliation(room, TOKEN_ACTOR, jid, "member", "Role restored from token cache");
             end
             return success, err, code;
         end
 
         if is_moderator_cached == true and affiliation ~= "owner" then
-            log('error', TAG .. string.format(' [SECURITY] %s tried to demote token-moderator %s — BLOCKED', actor_str, jid));
+            log('error',
+                TAG .. string.format(' [SECURITY] %s tried to demote token-moderator %s — BLOCKED', actor_str, jid));
             return nil, "modify", "not-acceptable";
         end
 
         if is_moderator_cached == false and affiliation == "owner" then
-            log('error', TAG .. string.format(' [SECURITY] %s tried to promote non-moderator %s — BLOCKED', actor_str, jid));
+            log('error',
+                TAG .. string.format(' [SECURITY] %s tried to promote non-moderator %s — BLOCKED', actor_str, jid));
             return nil, "modify", "not-acceptable";
         end
 
@@ -168,6 +164,14 @@ module:hook("muc-room-created", function(event)
         log('info', TAG .. string.format(' [PASS] Allowing affiliation set for %s by %s', jid, actor_str));
         return _set_affiliation(room, actor, jid, affiliation, reason);
     end
+end);
+
+module:hook("muc-occupant-pre-join", function(event)
+    local room = event.room;
+    local origin = event.origin;
+    local occupant = event.occupant;
+    if not occupant or not origin or not room then return; end
+    setupAffiliation(room, origin, occupant.nick);
 end);
 
 module:hook("muc-occupant-left", function(event)
