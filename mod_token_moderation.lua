@@ -149,16 +149,14 @@ module:hook("muc-room-created", function(event)
 end, math.huge);
 
 module:hook("muc-occupant-pre-join", function(event)
-    local room = event.room;
-    local origin = event.origin;
-    local occupant = event.occupant;
+    local room, origin, occupant = event.room, event.origin, event.occupant;
 
-    if not occupant or not origin or not room then
+    if not room or not origin or not occupant then
         log('warn', TAG .. ' muc-occupant-pre-join: missing room, origin, or occupant');
         return;
     end
 
-    local bare_jid = jid_bare(origin.full_jid);
+    local bare_jid = jid_bare(origin.full_jid); -- Use origin.full_jid
     if not bare_jid then
         log('error', TAG .. ' origin.full_jid is malformed or nil — skipping affiliation check');
         return;
@@ -172,16 +170,19 @@ module:hook("muc-occupant-pre-join", function(event)
         .. ', user_roles[bare_jid]=' .. tostring(room._data.user_roles and room._data.user_roles[bare_jid])
         .. ', is_moderator=' .. tostring(origin.is_moderator));
 
-    setupAffiliation(room, origin, origin.full_jid);
+    setupAffiliation(room, origin, origin.full_jid); -- Set affiliation using origin.full_jid
 
     local affiliation = room:get_affiliation(bare_jid);
-    if affiliation == "owner" and occupant.role ~= "moderator" then
-        occupant.role = "moderator"; -- Принудительно устанавливаем роль
+    if affiliation == "owner" then
+        occupant.role = "moderator"; -- Force role to moderator
         log('info', TAG .. string.format(' [PREJOIN] Forcing role=moderator for %s with affiliation=owner', bare_jid));
     end
 
     local role = occupant.role or "nil";
-    log('info', TAG .. string.format(' [PREJOIN] %s affiliation=%s role=%s', bare_jid, affiliation or "nil", role));
+    log('info',
+        TAG ..
+        string.format(' [PREJOIN] %s affiliation=%s role=%s (cache: %s)', bare_jid, affiliation or "nil", role,
+            tostring(room._data.user_roles and room._data.user_roles[bare_jid])));
 end, 1000);
 
 module:hook("muc-occupant-left", function(event)
@@ -199,31 +200,59 @@ module:hook("muc-occupant-left", function(event)
     end
 end, 1);
 
+-- Hook for muc-occupant-joined to ensure correct role assignment and logging
+-- Hook for muc-occupant-joined to ensure correct role assignment and logging
 module:hook("muc-occupant-joined", function(event)
     local room, occupant, origin = event.room, event.occupant, event.origin;
 
-    if not room or not occupant or not origin then
-        log('warn', TAG .. ' muc-occupant-joined: missing room, occupant, or origin');
+    log('debug', TAG .. ' [JOINED] Hook triggered');
+
+    if not room then
+        log('error', TAG .. ' [JOINED] room is nil');
+        return;
+    end
+    if not occupant then
+        log('error', TAG .. ' [JOINED] occupant is nil');
+        return;
+    end
+    if not origin then
+        log('error', TAG .. ' [JOINED] origin is nil');
         return;
     end
 
-    local bare_jid = jid_bare(origin.full_jid);
+    log('debug', TAG .. ' [JOINED] origin.full_jid = ' .. tostring(origin.full_jid));
+    log('debug', TAG .. ' [JOINED] occupant.jid = ' .. tostring(occupant.jid));
+    log('debug', TAG .. ' [JOINED] occupant.nick = ' .. tostring(occupant.nick));
+    log('debug', TAG .. ' [JOINED] occupant.role = ' .. tostring(occupant.role));
+
+    local bare_jid = jid_bare(origin.full_jid); -- Use origin.full_jid for consistency
     if not bare_jid then
-        log('error', TAG .. ' origin.full_jid is malformed or nil — skipping role check');
+        log('error', TAG .. ' [JOINED] origin.full_jid is malformed or nil — skipping role check');
         return;
     end
 
     local affiliation = room:get_affiliation(bare_jid);
-    local role = occupant.role or "nil";
-    local cache = room._data.user_roles and room._data.user_roles[bare_jid] or "nil";
+    log('debug', TAG .. ' [JOINED] got affiliation = ' .. tostring(affiliation));
 
-    if affiliation == "owner" and role ~= "moderator" then
+    local cache = room._data.user_roles and room._data.user_roles[bare_jid];
+    log('debug', TAG .. ' [JOINED] cache for ' .. bare_jid .. ' = ' .. tostring(cache));
+
+    -- Force role to moderator if affiliation is owner
+    if affiliation == "owner" and occupant.role ~= "moderator" then
+        log('info', TAG .. string.format(
+            ' [JOINED] Forcing role=moderator for %s (was %s)',
+            bare_jid, tostring(occupant.role)
+        ));
         occupant.role = "moderator";
-        log('info', TAG .. string.format(' [JOINED] Forcing role=moderator for %s with affiliation=owner', bare_jid));
+    else
+        log('debug', TAG .. string.format(
+            ' [JOINED] No role change needed for %s (affiliation=%s, role=%s)',
+            bare_jid, tostring(affiliation), tostring(occupant.role)
+        ));
     end
 
     log('info', TAG .. string.format(
-        ' [JOINED] %s affiliation=%s role=%s (cache: %s, occupant.jid=%s, nick=%s)',
+        ' [JOINED] Final — %s affiliation=%s role=%s (cache: %s, occupant.jid=%s, nick=%s)',
         bare_jid,
         affiliation or "nil",
         occupant.role or "nil",
@@ -232,3 +261,24 @@ module:hook("muc-occupant-joined", function(event)
         tostring(occupant.nick)
     ));
 end, 1000);
+
+module:hook("muc-occupant-pre-join", function(event)
+    local room, occupant, origin = event.room, event.occupant, event.origin;
+    if not room or not occupant or not origin then
+        log('warn', TAG .. ' muc-occupant-pre-join-late: missing room, occupant, or origin');
+        return;
+    end
+
+    local bare_jid = jid_bare(origin.full_jid);
+    if not bare_jid then
+        log('error', TAG .. ' origin.full_jid is malformed or nil — skipping late check');
+        return;
+    end
+
+    local affiliation = room:get_affiliation(bare_jid);
+    local role = occupant.role or "nil";
+    log('info',
+        TAG ..
+        string.format(' [PREJOIN_LATE] %s affiliation=%s role=%s (cache: %s)', bare_jid, affiliation or "nil", role,
+            tostring(room._data.user_roles and room._data.user_roles[bare_jid])));
+end, -100); -- Low priority to run after other modules
