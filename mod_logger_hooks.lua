@@ -101,7 +101,24 @@ local function make_hook_logger(hook_name)
             nick         = tostring(safe_get(event, "nick") or ""),
             --stanza_name  = safe_get(event, "stanza", "name"),
         }
+                -- Extra info for muc-set-affiliation
+        if hook_name == "muc-set-affiliation" then
+            metadata.affiliation_change = {
+                actor = tostring(safe_get(event, "actor") or ""),
+                jid   = tostring(safe_get(event, "jid") or ""),
+                affiliation = tostring(safe_get(event, "affiliation") or ""),
+            }
 
+            local info = debug.getinfo(3, "nSl");
+            metadata.call_origin = {
+                source = info.short_src or "unknown",
+                line   = info.currentline or -1,
+                name   = info.name or "?"
+            }
+
+            metadata.stacktrace = debug.traceback("", 3);
+        end
+        
         log("debug", "[Hook-Logger] Sanitizing event for JSON serialization")
         --metadata.raw_event = sanitize(event)
         --log("debug", "[Hook-Logger] Sanitized event: %s", tostring(metadata.raw_event) or "<nil>")
