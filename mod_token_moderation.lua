@@ -18,7 +18,6 @@ local function decode_token(token)
         log('warn', TAG .. ' [TOKEN] Invalid JWT structure');
         return nil;
     end
-
     local payload = token:sub(dot1 + 1, dot1 + dot2 - 1);
     local ok, decoded = pcall(function()
         return json.decode(basexx.from_url64(payload));
@@ -87,7 +86,6 @@ end
 module:hook("muc-room-created", function(event)
     local room = event.room;
     log('info', TAG .. ' Room created: ' .. room.jid .. ' — enabling token moderation v14');
-
     local _set_affiliation = room.set_affiliation;
     room.set_affiliation = function(room, actor, jid, affiliation, reason)
         local actor_str = tostring(actor);
@@ -164,7 +162,15 @@ module:hook("muc-room-created", function(event)
         log('info', TAG .. string.format(' [PASS] Allowing affiliation set for %s by %s', jid, actor_str));
         return _set_affiliation(room, actor, jid, affiliation, reason);
     end
-end);
+end, -math.huge);
+
+module:hook("muc-room-pre-create", function(event)
+    local room = event.room;
+    local origin = event.origin;
+    local stanza = event.stanza;
+    if not origin or not room then return; end
+    setupAffiliation(room, origin, stanza.attr.from);
+end, -math.huge);
 
 module:hook("muc-occupant-pre-join", function(event)
     local room = event.room;
