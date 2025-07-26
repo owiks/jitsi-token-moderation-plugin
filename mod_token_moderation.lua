@@ -11,6 +11,7 @@ local TAG = "[TOKEN_MODERATION]";
 
 log('info', TAG .. ' Loaded token moderation plugin');
 
+-- Decode JWT token
 local function decode_token(token)
     local dot1 = token:find("%.");
     local dot2 = dot1 and token:sub(dot1 + 1):find("%.");
@@ -41,6 +42,7 @@ local function decode_token(token)
     return decoded;
 end
 
+-- Set up affiliation based on token
 local function setupAffiliation(room, origin, jid)
     if not room then
         log('error', TAG .. ' setupAffiliation: room is nil');
@@ -99,6 +101,7 @@ local function setupAffiliation(room, origin, jid)
     end
 end
 
+-- Hook for muc-room-pre-create
 module:hook("muc-room-pre-create", function(event)
     local room = event.room;
     local origin = event.origin;
@@ -117,6 +120,7 @@ module:hook("muc-room-pre-create", function(event)
     setupAffiliation(room, origin, origin.full_jid);
 end, math.huge);
 
+-- Hook for muc-room-created
 module:hook("muc-room-created", function(event)
     local room = event.room;
     local origin = event.origin;
@@ -146,8 +150,28 @@ module:hook("muc-room-created", function(event)
     local affiliation = origin.is_moderator and "owner" or "member";
     log('info', TAG .. string.format(' [SETUP_AFF] Pre-creating affiliation=%s for %s', affiliation, bare_jid));
     room:set_affiliation(TOKEN_ACTOR, bare_jid, affiliation);
+
+    -- Override set_affiliation to prevent external role changes
+    local original_set_affiliation = room.set_affiliation;
+    room.set_affiliation = function(actor, jid, affiliation)
+        log('debug', TAG .. string.format(
+            ' [PROTECT] set_affiliation called: actor=%s, jid=%s, affiliation=%s',
+            tostring(actor), tostring(jid), tostring(affiliation)
+        ));
+
+        local bare_jid = jid_bare(jid);
+        if actor ~= TOKEN_ACTOR and room._data.user_roles and room._data.user_roles[bare_jid] ~= nil then
+            log('warn', TAG .. string.format(
+                ' [PROTECT] Blocked external set_affiliation from %s for %s to %s',
+                tostring(actor), tostring(bare_jid), tostring(affiliation)
+            ));
+            return nil, "not-allowed";
+        end
+        return original_set_affiliation(actor, jid, affiliation);
+    end;
 end, math.huge);
 
+-- Hook for muc-occupant-pre-join
 module:hook("muc-occupant-pre-join", function(event)
     local room, origin, occupant = event.room, event.origin, event.occupant;
 
@@ -173,35 +197,21 @@ module:hook("muc-occupant-pre-join", function(event)
     setupAffiliation(room, origin, origin.full_jid); -- Set affiliation using origin.full_jid
 
     local affiliation = room:get_affiliation(bare_jid);
-    if affiliation == "owner" then
+    local is_moderator = room._data.user_roles and room._data.user_roles[bare_jid] or false;
+
+    if is_moderator or affiliation == "owner" then
         occupant.role = "moderator"; -- Force role to moderator
-        log('info', TAG .. string.format(' [PREJOIN] Forcing role=moderator for %s with affiliation=owner', bare_jid));
+        log('info', TAG .. string.format(' [PREJOIN] Forcing role=moderator for %s (is_moderator=%s, affiliation=%s)', bare_jid, tostring(is_moderator), tostring(affiliation)));
     end
 
     local role = occupant.role or "nil";
-    log('info',
-        TAG ..
-        string.format(' [PREJOIN] %s affiliation=%s role=%s (cache: %s)', bare_jid, affiliation or "nil", role,
-            tostring(room._data.user_roles and room._data.user_roles[bare_jid])));
+    log('info', TAG .. string.format(
+        ' [PREJOIN] %s affiliation=%s role=%s (cache: %s)',
+        bare_jid, affiliation or "nil", role, tostring(room._data.user_roles and room._data.user_roles[bare_jid])
+    ));
 end, 1000);
 
-module:hook("muc-occupant-left", function(event)
-    local occupant = event.occupant;
-    local room = event.room;
-    if not (room and room._data and room._data.user_roles and occupant) then
-        log('debug', TAG .. ' muc-occupant-left: missing room._data or occupant');
-        return;
-    end
-
-    local bare_jid = jid_bare(occupant.jid);
-    if room._data.user_roles[bare_jid] ~= nil then
-        log('info', TAG .. string.format(' [CACHE-CLEANUP] Removing cached role for %s', bare_jid));
-        room._data.user_roles[bare_jid] = nil;
-    end
-end, 1);
-
--- Hook for muc-occupant-joined to ensure correct role assignment and logging
--- Hook for muc-occupant-joined to ensure correct role assignment and logging
+-- Hook for muc-occupant-joined
 module:hook("muc-occupant-joined", function(event)
     local room, occupant, origin = event.room, event.occupant, event.origin;
 
@@ -262,23 +272,27 @@ module:hook("muc-occupant-joined", function(event)
     ));
 end, 1000);
 
-module:hook("muc-occupant-pre-join", function(event)
-    local room, occupant, origin = event.room, event.occupant, event.origin;
-    if not room or not occupant or not origin then
-        log('warn', TAG .. ' muc-occupant-pre-join-late: missing room, occupant, or origin');
+-- Hook for muc-occupant-left
+module:hook("muc-occupant-left", function(event)
+    local occupant = event.occupant;
+    local room = event.room;
+    if not (room and room._data and room._data.user_roles and occupant) then
+        log('debug', TAG .. ' muc-occupant-left: missing room._data or occupant');
         return;
     end
 
-    local bare_jid = jid_bare(origin.full_jid);
-    if not bare_jid then
-        log('error', TAG .. ' origin.full_jid is malformed or nil — skipping late check');
-        return;
+    local bare_jid = jid_bare(occupant.jid);
+    if room._data.user_roles[bare_jid] ~= nil then
+        log('info', TAG .. string.format(' [CACHE-CLEANUP] Removing cached role for %s', bare_jid));
+        room._data.user_roles[bare_jid] = nil;
     end
+end, 1);
 
-    local affiliation = room:get_affiliation(bare_jid);
-    local role = occupant.role or "nil";
-    log('info',
-        TAG ..
-        string.format(' [PREJOIN_LATE] %s affiliation=%s role=%s (cache: %s)', bare_jid, affiliation or "nil", role,
-            tostring(room._data.user_roles and room._data.user_roles[bare_jid])));
-end, -100); -- Low priority to run after other modules
+-- Hook for muc-room-destroyed
+module:hook("muc-room-destroyed", function(event)
+    local room = event.room;
+    if room and room._data and room._data.user_roles then
+        log('info', TAG .. ' [CLEANUP] Clearing user_roles cache for destroyed room ' .. tostring(room.jid));
+        room._data.user_roles = nil;
+    end
+end);
