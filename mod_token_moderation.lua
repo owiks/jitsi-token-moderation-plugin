@@ -158,24 +158,25 @@ module:hook("muc-occupant-pre-join", function(event)
         return;
     end
 
-    local bare_jid = jid_bare(occupant.jid);
+    local bare_jid = jid_bare(origin.full_jid);
     if not bare_jid then
-        log('error', TAG .. ' occupant.jid is malformed or nil — skipping affiliation check');
+        log('error', TAG .. ' origin.full_jid is malformed or nil — skipping affiliation check');
         return;
     end
 
-    log('debug', TAG .. ' muc-occupant-pre-join: occupant.nick=' .. tostring(occupant.nick)
+    log('debug', TAG .. ' muc-occupant-pre-join: occupant.jid=' .. tostring(occupant.jid)
+        .. ', occupant.nick=' .. tostring(occupant.nick)
         .. ', origin.type=' .. tostring(origin.type)
         .. ', origin.full_jid=' .. tostring(origin.full_jid)
         .. ', room.jid=' .. tostring(room.jid)
         .. ', user_roles[bare_jid]=' .. tostring(room._data.user_roles and room._data.user_roles[bare_jid])
         .. ', is_moderator=' .. tostring(origin.is_moderator));
 
-    setupAffiliation(room, origin, occupant.jid);
+    setupAffiliation(room, origin, origin.full_jid);
 
     local affiliation = room:get_affiliation(bare_jid);
-    if affiliation == "owner" then
-        occupant.role = "moderator";
+    if affiliation == "owner" and occupant.role ~= "moderator" then
+        occupant.role = "moderator"; -- Принудительно устанавливаем роль
         log('info', TAG .. string.format(' [PREJOIN] Forcing role=moderator for %s with affiliation=owner', bare_jid));
     end
 
@@ -199,15 +200,35 @@ module:hook("muc-occupant-left", function(event)
 end, 1);
 
 module:hook("muc-occupant-joined", function(event)
-    local room, occupant = event.room, event.occupant;
-    local bare_jid = jid_bare(occupant.jid);
+    local room, occupant, origin = event.room, event.occupant, event.origin;
+
+    if not room or not occupant or not origin then
+        log('warn', TAG .. ' muc-occupant-joined: missing room, occupant, or origin');
+        return;
+    end
+
+    local bare_jid = jid_bare(origin.full_jid);
+    if not bare_jid then
+        log('error', TAG .. ' origin.full_jid is malformed or nil — skipping role check');
+        return;
+    end
+
     local affiliation = room:get_affiliation(bare_jid);
     local role = occupant.role or "nil";
+    local cache = room._data.user_roles and room._data.user_roles[bare_jid] or "nil";
+
+    if affiliation == "owner" and role ~= "moderator" then
+        occupant.role = "moderator";
+        log('info', TAG .. string.format(' [JOINED] Forcing role=moderator for %s with affiliation=owner', bare_jid));
+    end
+
     log('info', TAG .. string.format(
-        ' [JOINED] %s affiliation=%s role=%s (cache: %s)',
+        ' [JOINED] %s affiliation=%s role=%s (cache: %s, occupant.jid=%s, nick=%s)',
         bare_jid,
         affiliation or "nil",
-        role,
-        tostring(room._data.user_roles and room._data.user_roles[bare_jid])
+        occupant.role or "nil",
+        tostring(cache),
+        tostring(occupant.jid),
+        tostring(occupant.nick)
     ));
 end, 1000);
