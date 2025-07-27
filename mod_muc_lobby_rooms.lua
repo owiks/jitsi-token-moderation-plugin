@@ -28,6 +28,7 @@ module:depends("jitsi_session");
 local jid_split = require 'util.jid'.split;
 local jid_bare = require 'util.jid'.bare;
 local jid_prep = require "util.jid".prep;
+local basexx = require "basexx";
 local jid_resource = require "util.jid".resource;
 local resourceprep = require "util.encodings".stringprep.resourceprep;
 local json = require 'cjson.safe';
