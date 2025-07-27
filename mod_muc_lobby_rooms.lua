@@ -401,7 +401,7 @@ local prosody_overrides = {
     end
 };
 
-local function decode_token_payload(token)
+function decode_token_payload(token)
     local first_dot = token:find("%.");
     if not first_dot then return nil end
     local second_dot = token:find("%.", first_dot + 1);
@@ -652,7 +652,7 @@ process_host_module(main_muc_component_config, function(host_module, host)
                 module:log("debug", "[LOBBY_CHECK] decoded JWT moderator = %s, email = %s",
                     tostring(is_moderator), tostring(context_user.email));
             end
-        
+
             module:log("debug", "[LOBBY_CHECK] is_moderator = %s", tostring(is_moderator));
 
             if not is_moderator then
