@@ -56,7 +56,6 @@ this_module:hook("muc-room-pre-create", function (event)
             if lobby_room then
                 lobby_room:set_password(FIXED_PASSWORD)
                 this_module:log("info", TAG .. "Set fixed password '%s' for lobby room: %s", FIXED_PASSWORD, lobby_jid)
-                this_module:log("debug", TAG .. "Lobby room object: %s", serialize(lobby_room))
                 return
             else
                 this_module:log("debug", TAG .. "Attempt %d: lobby room object not yet available: %s", attempts, tostring(lobby_jid))
