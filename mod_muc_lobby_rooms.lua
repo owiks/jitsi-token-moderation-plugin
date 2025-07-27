@@ -308,20 +308,18 @@ function handle_admin_query_set_command_item(self, origin, stanza, item)
         end
         local registration_data;
         if item.attr.nick then
-            local room_nick = self.jid .. "/" .. item.attr.nick;
+            local room_nick = self.jid.."/"..item.attr.nick;
             local existing_occupant = self:get_occupant_by_nick(room_nick);
             if existing_occupant and existing_occupant.bare_jid ~= item.attr.jid then
-                module:log("debug", "Existing occupant for %s: %s does not match %s", room_nick,
-                    existing_occupant.bare_jid, item.attr.jid);
+                module:log("debug", "Existing occupant for %s: %s does not match %s", room_nick, existing_occupant.bare_jid, item.attr.jid);
                 self:set_role(true, room_nick, nil, "This nickname is reserved");
             end
             module:log("debug", "Reserving %s for %s (%s)", item.attr.nick, item.attr.jid, item.attr.affiliation);
             registration_data = { reserved_nickname = item.attr.nick };
         end
-        module:log("debug", "set_affiliation for %s (%s) to %s by %s", item.attr.jid, item.attr.nick, item.attr.affiliation, actor, reason, registration_data);
+        
         success, errtype, err = self:set_affiliation(actor, item.attr.jid, item.attr.affiliation, reason, registration_data);
     elseif item.attr.role and item.attr.nick and not item.attr.affiliation then
-        module:log("debug", "set_role for %s (%s) to %s by %s", item.attr.jid, item.attr.nick, item.attr.affiliation, actor, reason);
         success, errtype, err = self:set_role(actor, self.jid.."/"..item.attr.nick, item.attr.role, reason);
     else
         success, errtype, err = nil, "cancel", "bad-request";
@@ -523,79 +521,98 @@ process_host_module(main_muc_component_config, function(host_module, host)
     host_module:hook('muc-occupant-pre-join', function (event)
         local occupant, room, stanza = event.occupant, event.room, event.stanza;
 
-        if is_healthcheck_room(room.jid) or not room:get_members_only() or ends_with(occupant.nick, '/focus') then
+        module:log("debug", "[LOBBY_CHECK] muc-occupant-pre-join for room: %s", tostring(room and room.jid));
+        module:log("debug", "[LOBBY_CHECK] occupant nick: %s", tostring(occupant and occupant.nick));
+        module:log("debug", "[LOBBY_CHECK] stanza from: %s", tostring(stanza and stanza.attr and stanza.attr.from));
+
+        if is_healthcheck_room(room.jid) then
+            module:log("debug", "[LOBBY_CHECK] skipping healthcheck room: %s", room.jid);
+            return;
+        end
+        if not room:get_members_only() then
+            module:log("debug", "[LOBBY_CHECK] skipping non-members-only room: %s", room.jid);
+            return;
+        end
+        if ends_with(occupant.nick, '/focus') then
+            module:log("debug", "[LOBBY_CHECK] skipping focus user: %s", occupant.nick);
             return;
         end
 
         local join = stanza:get_child('x', MUC_NS);
         if not join then
+            module:log("debug", "[LOBBY_CHECK] no <x> element in stanza from: %s", stanza.attr.from);
             return;
         end
 
-        local invitee = event.stanza.attr.from;
+        local invitee = stanza.attr.from;
         local invitee_bare_jid = jid_bare(invitee);
         local _, invitee_domain = jid_split(invitee);
         local whitelistJoin = false;
 
-        -- whitelist participants
+        module:log("debug", "[LOBBY_CHECK] invitee: %s, domain: %s", invitee_bare_jid, invitee_domain);
+
         if whitelist:contains(invitee_domain) or whitelist:contains(invitee_bare_jid) then
             whitelistJoin = true;
+            module:log("debug", "[LOBBY_CHECK] invitee is whitelisted: %s", invitee);
         end
 
         local password = join:get_child_text('password', MUC_NS);
+        module:log("debug", "[LOBBY_CHECK] user-provided password: %s", tostring(password));
+        module:log("debug", "[LOBBY_CHECK] room password: %s", tostring(room:get_password()));
+
         if password and room:get_password() and password == room:get_password() then
             whitelistJoin = true;
+            module:log("debug", "[LOBBY_CHECK] password match: access granted");
         end
 
         if whitelistJoin then
             local affiliation = room:get_affiliation(invitee);
-            -- if it was already set to be whitelisted member
+            module:log("debug", "[LOBBY_CHECK] current affiliation: %s", tostring(affiliation));
             if not affiliation or affiliation == 'none' or affiliation == 'member' then
                 occupant.role = 'participant';
                 room:set_affiliation(true, invitee_bare_jid, 'member');
                 room:save_occupant(occupant);
-
+                module:log("info", "[LOBBY_CHECK] access allowed for %s (participant)", invitee);
                 return;
             end
         elseif room:get_password() then
             local affiliation = room:get_affiliation(invitee);
-            -- if pre-approved and password is set for the room, add the password to allow joining
+            module:log("debug", "[LOBBY_CHECK] checking password autofill for %s with affiliation: %s", invitee, tostring(affiliation));
             if affiliation == 'member' and not password then
                 join:tag('password', { xmlns = MUC_NS }):text(room:get_password());
+                module:log("debug", "[LOBBY_CHECK] password autofilled for %s", invitee);
             end
         end
 
-        -- Check for display name if missing return an error
         local displayName = stanza:get_child_text('nick', 'http://jabber.org/protocol/nick');
+        module:log("debug", "[LOBBY_CHECK] display name: %s", tostring(displayName));
+
         if (not displayName or #displayName == 0) and not room._data.lobby_skip_display_name_check then
+            module:log("warn", "[LOBBY_CHECK] missing display name for %s", invitee);
             local reply = st.error_reply(stanza, 'modify', 'not-acceptable');
             reply.tags[1].attr.code = '406';
             reply:tag('displayname-required', { xmlns = 'http://jitsi.org/jitmeet', lobby = 'true' }):up():up();
-
             event.origin.send(reply:tag('x', {xmlns = MUC_NS}));
             return true;
         end
 
-        -- we want to add the custom lobbyroom field to fill in the lobby room jid
-        local invitee = event.stanza.attr.from;
         local affiliation = room:get_affiliation(invitee);
+        module:log("debug", "[LOBBY_CHECK] final affiliation check: %s", tostring(affiliation));
+
         if not affiliation or affiliation == 'none' then
+            module:log("info", "[LOBBY_CHECK] access denied, sending to lobby: %s", invitee);
             local reply = st.error_reply(stanza, 'auth', 'registration-required');
             reply.tags[1].attr.code = '407';
             if room._data.lobby_extra_reason then
                 reply:tag(room._data.lobby_extra_reason, { xmlns = 'http://jitsi.org/jitmeet' }):up();
             end
             reply:tag('lobbyroom', { xmlns = 'http://jitsi.org/jitmeet' }):text(room._data.lobbyroom):up():up();
-
-            -- TODO: Drop this tag at some point (when all mobile clients and jigasi are updated), as this violates the rfc
             reply:tag('lobbyroom'):text(room._data.lobbyroom):up();
-
             event.origin.send(reply:tag('x', {xmlns = MUC_NS}));
             return true;
         end
-    end, -4); -- the default hook on members_only module is on -5
-
-    -- listens for invites for participants to join the main room
+    end, -4); -- listens for invites for participants to join the main room
+    
     host_module:hook('muc-invite', function(event)
         local room, stanza = event.room, event.stanza;
         local invitee = stanza.attr.to;
