@@ -37,7 +37,7 @@ module:hook("muc-room-pre-create", function (event)
         if not lobby_jid then
             module:log("debug", TAG .. "Attempt %d: lobbyroom still missing for %s", attempts, jid)
         else
-            local lobby_host = module:get_option_string("lobby_muc")
+            local lobby_host = module:get_option_string("lobby_muc", "lobby.meet.jitsi")
             if not lobby_host then
                 module:log("error", TAG .. "lobby_muc option not defined")
                 return
