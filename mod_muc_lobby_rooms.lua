@@ -401,6 +401,19 @@ local prosody_overrides = {
     end
 };
 
+local function decode_token_payload(token)
+    local first_dot = token:find("%.");
+    if not first_dot then return nil end
+    local second_dot = token:find("%.", first_dot + 1);
+    if not second_dot then return nil end
+    local payload_b64 = token:sub(first_dot + 1, second_dot - 1);
+    local ok, payload_str = pcall(base64.from_url64, payload_b64);
+    if not ok then return nil end
+    local ok2, payload = pcall(json.decode, payload_str);
+    if not ok2 then return nil end
+    return payload;
+end
+
 -- operates on already loaded lobby muc module
 function process_lobby_muc_loaded(lobby_muc, host_module)
     module:log('debug', 'Lobby muc loaded');
@@ -627,32 +640,37 @@ process_host_module(main_muc_component_config, function(host_module, host)
         if session.auth_token then
             module:log("info", "[LOBBY_CHECK] Session token: %s, session room: %s",
                 tostring(session.auth_token), tostring(session.jitsi_meet_room));
-        
-            local context_user = session.jitsi_meet_context_user or {};
-            module:log("debug", "[LOBBY_CHECK] context_user = %s", serialize(context_user));
-        
+
+            local payload = session.auth_token and decode_token_payload(session.auth_token);
             local is_moderator = false;
-            if context_user["moderator"] == true or context_user["moderator"] == "true" then
-                is_moderator = true;
+
+            if payload then
+                local context_user = payload.context and payload.context.user or {};
+                if payload.moderator == true or context_user.moderator == true then
+                    is_moderator = true;
+                end
+                module:log("debug", "[LOBBY_CHECK] decoded JWT moderator = %s, email = %s",
+                    tostring(is_moderator), tostring(context_user.email));
             end
-            module:log("debug", "[LOBBY_CHECK] is_moderator = %s", tostring(is_moderator));
         
+            module:log("debug", "[LOBBY_CHECK] is_moderator = %s", tostring(is_moderator));
+
             if not is_moderator then
                 module:log("debug", "[LOBBY_CHECK] User is not moderator, checking password...");
-        
+
                 if not password then
                     module:log("debug", "[LOBBY_CHECK] No password provided by user: %s", invitee);
                 end
-        
+
                 if not password_room then
                     password_room = "#H@F*OIEUWNKJASD";
                     module:log("debug", "[LOBBY_CHECK] Room has no password, using default: %s", password_room);
                 end
-        
+
                 if password ~= password_room then
                     module:log("warn", "[LOBBY_CHECK] Incorrect password from %s: '%s' (expected: '%s')",
                         invitee, tostring(password), tostring(password_room));
-        
+
                     local reply = st.error_reply(stanza, 'auth', 'not-authorized');
                     reply.tags[1].attr.code = '403';
                     reply:tag('wrong-password', { xmlns = 'http://jitsi.org/jitmeet' }):up():up();
