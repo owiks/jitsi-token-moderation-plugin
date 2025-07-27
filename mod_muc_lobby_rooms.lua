@@ -408,7 +408,7 @@ function decode_token_payload(token)
     local second_dot = token:find("%.", first_dot + 1);
     if not second_dot then return nil end
     local payload_b64 = token:sub(first_dot + 1, second_dot - 1);
-    local ok, payload_str = pcall(base64.from_url64, payload_b64);
+    local ok, payload_str = pcall(basexx.from_url64, payload_b64);
     if not ok then return nil end
     local ok2, payload = pcall(json.decode, payload_str);
     if not ok2 then return nil end
