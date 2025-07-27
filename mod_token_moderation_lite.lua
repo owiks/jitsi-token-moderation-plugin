@@ -71,5 +71,7 @@ function setupAffiliation(room, origin, stanza)
 
     if moderator == true or is_admin(jid) then
         room:set_affiliation("token_plugin", jid, "owner");
-    end
+    else
+        room:set_affiliation("token_plugin", jid, "member");
+    end;
 end
