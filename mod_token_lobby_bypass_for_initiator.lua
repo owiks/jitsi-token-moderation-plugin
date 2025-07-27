@@ -9,76 +9,80 @@ local LOGLEVEL = "debug"
 local util = module:require "util"
 local is_admin = util.is_admin
 local is_healthcheck_room = util.is_healthcheck_room
+local jid = require "util.jid"
+local serialize = require "util.serialization".serialize
 
-module:log("info", "loaded")
+module:log("info", "[LOBBY_BYPASS] Module loaded")
 
 module:hook("muc-room-pre-create", function (event)
     local room = event.room
+
+    if not room then
+        module:log("error", "[LOBBY_BYPASS] muc-room-pre-create: room is nil")
+        return
+    end
 
     if is_healthcheck_room(room.jid) then
         return
     end
 
+    module:log(LOGLEVEL, "[LOBBY_BYPASS] muc-room-pre-create for room: %s", tostring(room.jid))
     room._data.initiator_joined = false
-end);
+end)
 
 module:hook("muc-occupant-pre-join", function (event)
     local session, room, occupant = event.origin, event.room, event.occupant
 
+    if not (session and room and occupant) then
+        module:log("warn", "[LOBBY_BYPASS] missing session/room/occupant in pre-join")
+        return
+    end
+
+    module:log(LOGLEVEL, "[LOBBY_BYPASS] occupant.bare_jid: %s", tostring(occupant.bare_jid))
+    module:log(LOGLEVEL, "[LOBBY_BYPASS] room.jid: %s", tostring(room.jid))
+
     if is_admin(occupant.bare_jid) or is_healthcheck_room(room.jid) then
+        module:log(LOGLEVEL, "[LOBBY_BYPASS] is admin or healthcheck: skip")
         return
     end
 
-    -- do nothing if initiator has already joined.
     if room._data.initiator_joined then
+        module:log(LOGLEVEL, "[LOBBY_BYPASS] Initiator already joined: %s", tostring(room.jid))
         return
     end
 
-    if room._data.lobbyroom == nil then
-        module:log(LOGLEVEL, "skip room with no active lobby - %s", room.jid)
+    if not room._data.lobbyroom then
+        module:log(LOGLEVEL, "[LOBBY_BYPASS] Room has no active lobby: %s", tostring(room.jid))
         return
     end
 
     if not session.auth_token then
-        module:log(LOGLEVEL, "skip user with no token - %s", occupant.bare_jid)
+        module:log(LOGLEVEL, "[LOBBY_BYPASS] Skipping user with no token: %s", tostring(occupant.bare_jid))
         return
     end
 
-    local affiliation = "member"
-    local context_user = session.jitsi_meet_context_user
+    local context_user = session.jitsi_meet_context_user or {}
+    module:log(LOGLEVEL, "[LOBBY_BYPASS] context_user: %s", serialize(context_user))
 
-    if context_user then
-        if context_user["affiliation"] == "owner" then
-            affiliation = "owner"
-        elseif context_user["affiliation"] == "moderator" then
-            affiliation = "owner"
-        elseif context_user["affiliation"] == "teacher" then
-            affiliation = "owner"
-        elseif context_user["moderator"] == "true" then
-            affiliation = "owner"
-        elseif context_user["moderator"] == true then
-            affiliation = "owner"
-        end
+    local is_moderator = false
+
+    if context_user["moderator"] == true or context_user["moderator"] == "true" then
+        is_moderator = true
     end
 
-    if affiliation ~= "owner" then
-        module:log(
-	    LOGLEVEL,
-	    "skip user with no owner status - %s",
-	    occupant.bare_jid
-	)
+    if context_user["affiliation"] == "owner" or context_user["affiliation"] == "moderator" or context_user["affiliation"] == "teacher" then
+        is_moderator = true
+    end
+
+    if not is_moderator then
+        module:log(LOGLEVEL, "[LOBBY_BYPASS] User not moderator: %s", tostring(occupant.bare_jid))
         return
     end
 
+    module:log(LOGLEVEL, "[LOBBY_BYPASS] Moderator identified, setting affiliation and role")
+    room:set_affiliation(true, occupant.bare_jid, "owner")
     occupant.role = 'participant'
-    room:set_affiliation(true, occupant.bare_jid, affiliation)
-    module:log(
-        LOGLEVEL,
-	"Bypassing lobby for room %s occupant %s",
-	room.jid, occupant.bare_jid
-    )
-
     room._data.initiator_joined = true
-end, -3);
---- Run just before lobby(priority -4) and members_only (-5).
---- Must run after token_verification (99), max_occupants (10), allowners (2).
+
+    module:log(LOGLEVEL, "[LOBBY_BYPASS] Bypassing lobby for %s, set owner affiliation", tostring(occupant.bare_jid))
+end, -3)
