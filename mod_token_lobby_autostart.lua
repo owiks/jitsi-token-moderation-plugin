@@ -1,15 +1,13 @@
--- mod_lobby_autostart_password.lua
-
 local util = module:require "util"
-local random = require "util.random"
 local timer = require "util.timer"
-local serialize = require "util.serialization".serialize -- для логов
-
+local serialize = require "util.serialization".serialize
 local is_healthcheck_room = util.is_healthcheck_room
 local TAG = "[LOBBY_AUTOSTART] "
 local this_module = module
 
-this_module:log("info", TAG .. "Loaded module: auto-lobby + random password")
+local FIXED_PASSWORD = "12345678"
+
+this_module:log("info", TAG .. "Loaded module: auto-lobby + fixed password")
 
 this_module:hook("muc-room-pre-create", function (event)
     local room = event.room
@@ -28,7 +26,6 @@ this_module:hook("muc-room-pre-create", function (event)
 
     prosody.events.fire_event("create-persistent-lobby-room", { room = room })
 
-    -- retry loop
     local attempts = 0
     local max_attempts = 50
     local delay = 0.2
@@ -43,11 +40,6 @@ this_module:hook("muc-room-pre-create", function (event)
             this_module:log("debug", TAG .. "Attempt %d: found lobbyroom JID: %s", attempts, tostring(lobby_jid))
 
             local lobby_host = this_module:get_option_string("lobby_muc", "lobby.meet.jitsi")
-            if not lobby_host then
-                this_module:log("error", TAG .. "lobby_muc option is not defined in config")
-                return
-            end
-
             local lobby_module = prosody.hosts[lobby_host] and prosody.hosts[lobby_host].modules
             if not lobby_module then
                 this_module:log("error", TAG .. "Cannot access modules of host: %s", lobby_host)
@@ -62,9 +54,8 @@ this_module:hook("muc-room-pre-create", function (event)
 
             local lobby_room = muc_module.get_room_from_jid(lobby_jid)
             if lobby_room then
-                local password = random.hex(6)
-                lobby_room:set_password(password)
-                this_module:log("info", TAG .. "Set random password '%s' for lobby room: %s", password, lobby_jid)
+                lobby_room:set_password(FIXED_PASSWORD)
+                this_module:log("info", TAG .. "Set fixed password '%s' for lobby room: %s", FIXED_PASSWORD, lobby_jid)
                 this_module:log("debug", TAG .. "Lobby room object: %s", serialize(lobby_room))
                 return
             else
