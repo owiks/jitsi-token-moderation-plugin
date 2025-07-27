@@ -317,7 +317,7 @@ function handle_admin_query_set_command_item(self, origin, stanza, item)
             module:log("debug", "Reserving %s for %s (%s)", item.attr.nick, item.attr.jid, item.attr.affiliation);
             registration_data = { reserved_nickname = item.attr.nick };
         end
-        
+
         success, errtype, err = self:set_affiliation(actor, item.attr.jid, item.attr.affiliation, reason, registration_data);
     elseif item.attr.role and item.attr.nick and not item.attr.affiliation then
         success, errtype, err = self:set_role(actor, self.jid.."/"..item.attr.nick, item.attr.role, reason);
@@ -612,7 +612,7 @@ process_host_module(main_muc_component_config, function(host_module, host)
             return true;
         end
     end, -4); -- listens for invites for participants to join the main room
-    
+
     host_module:hook('muc-invite', function(event)
         local room, stanza = event.room, event.stanza;
         local invitee = stanza.attr.to;
