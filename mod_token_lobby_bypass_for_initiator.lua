@@ -11,6 +11,9 @@ local is_admin = util.is_admin
 local is_healthcheck_room = util.is_healthcheck_room
 local jid = require "util.jid"
 local serialize = require "util.serialization".serialize
+local muc_util = module:require "muc/util";
+local valid_affiliations = muc_util.valid_affiliations;
+local is_healthcheck_room = util.is_healthcheck_room;
 
 module:log("info", "[LOBBY_BYPASS] Module loaded")
 
@@ -38,17 +41,20 @@ module:hook("muc-occupant-pre-join", function (event)
         return
     end
 
+    module:log(LOGLEVEL, "[LOBBY_BYPASS] occupant.nick: %s", tostring(occupant.nick))
     module:log(LOGLEVEL, "[LOBBY_BYPASS] occupant.bare_jid: %s", tostring(occupant.bare_jid))
     module:log(LOGLEVEL, "[LOBBY_BYPASS] room.jid: %s", tostring(room.jid))
 
     if is_healthcheck_room(room.jid) then
         return
     end
-    
+
     local is_admin_user = is_admin(occupant.bare_jid)
+
     if is_admin_user then
         module:log(LOGLEVEL, "[LOBBY_BYPASS] occupant is admin: %s", occupant.bare_jid)
     end
+
     if room._data.initiator_joined then
         module:log(LOGLEVEL, "[LOBBY_BYPASS] Initiator already joined: %s", tostring(room.jid))
         return
@@ -83,8 +89,18 @@ module:hook("muc-occupant-pre-join", function (event)
     end
 
     module:log(LOGLEVEL, "[LOBBY_BYPASS] Moderator identified, setting affiliation and role")
-    room:set_affiliation(true, occupant.bare_jid, "owner")
-    occupant.role = 'participant'
+    module:log(LOGLEVEL, "Bypassing lobby for room %s occupant %s", room.jid, occupant.bare_jid);
+
+    occupant.role = 'participant';
+
+    local affiliation = room:get_affiliation(occupant.bare_jid);
+    module:log(LOGLEVEL, "affiliation %s occupant %s", affiliation, occupant.bare_jid);
+
+    if valid_affiliations[affiliation or "none"] < valid_affiliations.member then
+        module:log(LOGLEVEL, "Setting affiliation for %s -> member", occupant.bare_jid);
+    end
+    room:set_affiliation(true, occupant.bare_jid, 'member');
+
     room._data.initiator_joined = true
 
     module:log(LOGLEVEL, "[LOBBY_BYPASS] Bypassing lobby for %s, set owner affiliation", tostring(occupant.bare_jid))
