@@ -561,7 +561,16 @@ process_host_module(main_muc_component_config, function(host_module, host)
 
         local password_room = room:get_password();
         module:log("debug", "[LOBBY_CHECK] room password: %s", tostring(password_room));
-
+        
+        if password and password_room and password ~= password_room then
+            module:log("warn", "[LOBBY_CHECK] incorrect password for %s (provided: %s, expected: %s)", invitee, tostring(password), tostring(password_room));
+            local reply = st.error_reply(stanza, 'auth', 'not-authorized');
+            reply.tags[1].attr.code = '403';
+            reply:tag('wrong-password', { xmlns = 'http://jitsi.org/jitmeet' }):up():up();
+            event.origin.send(reply:tag('x', { xmlns = MUC_NS }));
+            return true;
+        end   
+        
         if password and password_room and password == password_room then
             whitelistJoin = true;
             module:log("debug", "[LOBBY_CHECK] password match: access granted");
