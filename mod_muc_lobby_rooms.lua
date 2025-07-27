@@ -582,7 +582,7 @@ process_host_module(main_muc_component_config, function(host_module, host)
         else
             module:log("info", "[LOBBY_TRACE] No auth_token present");
         end
-    
+
         module:log("debug", "[LOBBY_CHECK] muc-occupant-pre-join for room: %s", tostring(room and room.jid));
         module:log("debug", "[LOBBY_CHECK] occupant nick: %s", tostring(occupant and occupant.nick));
         module:log("debug", "[LOBBY_CHECK] stanza from: %s", tostring(stanza and stanza.attr and stanza.attr.from));
@@ -717,14 +717,14 @@ process_host_module(main_muc_component_config, function(host_module, host)
                 end
 
                 if password ~= password_room then
-                    module:log("warn", "[LOBBY_CHECK] Incorrect password from %s: '%s' (expected: '%s')",
-                        invitee, tostring(password), tostring(password_room));
+--                     module:log("warn", "[LOBBY_CHECK] Incorrect password from %s: '%s' (expected: '%s')",
+--                         invitee, tostring(password), tostring(password_room));
 
-                    local reply = st.error_reply(stanza, 'auth', 'not-authorized');
-                    reply.tags[1].attr.code = '403';
-                    reply:tag('wrong-password', { xmlns = 'http://jitsi.org/jitmeet' }):up():up();
-                    event.origin.send(reply:tag('x', { xmlns = MUC_NS }));
-                    return true;
+--                     local reply = st.error_reply(stanza, 'auth', 'not-authorized');
+--                     reply.tags[1].attr.code = '403';
+--                     reply:tag('wrong-password', { xmlns = 'http://jitsi.org/jitmeet' }):up():up();
+--                     event.origin.send(reply:tag('x', { xmlns = MUC_NS }));
+--                     return true;
                 else
                     module:log("info", "[LOBBY_CHECK] Password matched for non-moderator %s", invitee);
                 end
