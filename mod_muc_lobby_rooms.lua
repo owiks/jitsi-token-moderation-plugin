@@ -558,16 +558,21 @@ process_host_module(main_muc_component_config, function(host_module, host)
 
         local password = join:get_child_text('password', MUC_NS);
         module:log("debug", "[LOBBY_CHECK] user-provided password: %s", tostring(password));
+        
+        if not password then
+            password = "1234567";
+            module:log("debug", "[LOBBY_CHECK] user-provided password: %s", tostring(password));
+        end
 
         local password_room = room:get_password();
         if not password_room then
             password_room = "#H@F*OIEUWNKJASD";
             module:log("debug", "[LOBBY_CHECK] set def room password default: %s", tostring(password_room));
         end
-        
+
         module:log("debug", "[LOBBY_CHECK] room password: %s", tostring(password_room));
         module:log("debug", "[LOBBY_CHECK] user-provided password: %s", tostring(password));
-        
+
         if password and password == password_room then
             whitelistJoin = true;
             module:log("debug", "[LOBBY_CHECK] password match: access granted");
@@ -580,7 +585,7 @@ process_host_module(main_muc_component_config, function(host_module, host)
             event.origin.send(reply:tag('x', { xmlns = MUC_NS }));
             return true;
         end
-        
+
         if whitelistJoin then
             local affiliation = room:get_affiliation(invitee);
             module:log("debug", "[LOBBY_CHECK] current affiliation: %s", tostring(affiliation));
