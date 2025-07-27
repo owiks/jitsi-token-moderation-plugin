@@ -567,11 +567,6 @@ process_host_module(main_muc_component_config, function(host_module, host)
             module:log("debug", "[LOBBY_CHECK] password match: access granted");
         end
 
-        if password_room == nil then
-            password_room = "#H@F*OIEUWNKJASD"
-            module:log("debug", "[LOBBY_CHECK] set def room password default: %s", tostring(password_room));
-        end
-
         if whitelistJoin then
             local affiliation = room:get_affiliation(invitee);
             module:log("debug", "[LOBBY_CHECK] current affiliation: %s", tostring(affiliation));
@@ -628,7 +623,12 @@ process_host_module(main_muc_component_config, function(host_module, host)
             event.origin.send(reply:tag('x', {xmlns = MUC_NS}));
             return true;
         end
-        
+
+        if password_room == nil then
+            password_room = "#H@F*OIEUWNKJASD"
+            module:log("debug", "[LOBBY_CHECK] set def room password default: %s", tostring(password_room));
+        end
+
         if not password or password ~= password_room then
             module:log("warn", "[LOBBY_CHECK] incorrect password from %s: %s", invitee, tostring(password));
             local reply = st.error_reply(stanza, 'auth', 'not-authorized');
