@@ -534,7 +534,39 @@ process_host_module(main_muc_component_config, function(host_module, host)
 
     host_module:hook('muc-occupant-pre-join', function (event)
         local occupant, room, stanza, session = event.occupant, event.room, event.stanza, event.origin;
-
+        
+        module:log("info", "[LOBBY_TRACE] muc-occupant-pre-join triggered");
+        module:log("info", "[LOBBY_TRACE] Room JID: %s", tostring(room and room.jid));
+        module:log("info", "[LOBBY_TRACE] Occupant: %s", tostring(occupant and occupant.nick));
+        module:log("info", "[LOBBY_TRACE] Occupant bare_jid: %s", tostring(occupant and occupant.bare_jid));
+        module:log("info", "[LOBBY_TRACE] Stanza from: %s", tostring(stanza and stanza.attr and stanza.attr.from));
+        module:log("info", "[LOBBY_TRACE] Session full_jid: %s", tostring(session and session.full_jid));
+        module:log("info", "[LOBBY_TRACE] Session remote IP: %s", tostring(session and session.ip));
+        module:log("info", "[LOBBY_TRACE] Session is_admin: %s", tostring(session and session.is_admin));
+        module:log("info", "[LOBBY_TRACE] Session is_secure: %s", tostring(session and session.secure));
+        module:log("info", "[LOBBY_TRACE] Session c2s_unauthed: %s", tostring(session and session.type));
+        module:log("info", "[LOBBY_TRACE] Session authenticated user: %s", tostring(session and session.username));
+        module:log("info", "[LOBBY_TRACE] Room:get_affiliation(): %s", tostring(room and room.get_affiliation and room:get_affiliation(stanza.attr.from)));
+        module:log("info", "[LOBBY_TRACE] Room:get_members_only(): %s", tostring(room and room:get_members_only()));
+        module:log("info", "[LOBBY_TRACE] Occupant role: %s", tostring(occupant and occupant.role));
+        
+        -- токен
+        if session and session.auth_token then
+            module:log("info", "[LOBBY_TRACE] Auth token: %s", tostring(session.auth_token));
+            local payload = decode_token_payload(session.auth_token);
+            if payload then
+                module:log("info", "[LOBBY_TRACE] Token payload: %s", require('util.inspect')(payload));
+            else
+                module:log("warn", "[LOBBY_TRACE] Failed to decode token");
+            end
+        end
+        
+        -- stanza
+        if stanza then
+            for _, tag in ipairs(stanza.tags) do
+                module:log("debug", "[LOBBY_TRACE] Stanza tag: <%s xmlns='%s'> = %s", tostring(tag.name), tostring(tag.attr and tag.attr.xmlns), tostring(tag:get_text()));
+            end
+        end
         module:log("debug", "[LOBBY_CHECK] muc-occupant-pre-join for room: %s", tostring(room and room.jid));
         module:log("debug", "[LOBBY_CHECK] occupant nick: %s", tostring(occupant and occupant.nick));
         module:log("debug", "[LOBBY_CHECK] stanza from: %s", tostring(stanza and stanza.attr and stanza.attr.from));
