@@ -519,7 +519,7 @@ process_host_module(main_muc_component_config, function(host_module, host)
     end);
 
     host_module:hook('muc-occupant-pre-join', function (event)
-        local occupant, room, stanza = event.occupant, event.room, event.stanza;
+        local occupant, room, stanza, session = event.occupant, event.room, event.stanza, event.origin;
 
         module:log("debug", "[LOBBY_CHECK] muc-occupant-pre-join for room: %s", tostring(room and room.jid));
         module:log("debug", "[LOBBY_CHECK] occupant nick: %s", tostring(occupant and occupant.nick));
@@ -624,21 +624,47 @@ process_host_module(main_muc_component_config, function(host_module, host)
             return true;
         end
 
-        if not password then
-            if password_room == nil then
-                password_room = "#H@F*OIEUWNKJASD"
-                module:log("debug", "[LOBBY_CHECK] set def room password default: %s", tostring(password_room));
+        if session.auth_token then
+            module:log("info", "[LOBBY_CHECK] Session token: %s, session room: %s",
+                tostring(session.auth_token), tostring(session.jitsi_meet_room));
+        
+            local context_user = session.jitsi_meet_context_user or {};
+            module:log("debug", "[LOBBY_CHECK] context_user = %s", serialize(context_user));
+        
+            local is_moderator = false;
+            if context_user["moderator"] == true or context_user["moderator"] == "true" then
+                is_moderator = true;
             end
-            if password ~= password_room then
-                module:log("warn", "[LOBBY_CHECK] incorrect password from %s: %s", invitee, tostring(password));
-                local reply = st.error_reply(stanza, 'auth', 'not-authorized');
-                reply.tags[1].attr.code = '403';
-                reply:tag('wrong-password', { xmlns = 'http://jitsi.org/jitmeet' }):up():up();
-                event.origin.send(reply:tag('x', { xmlns = MUC_NS }));
-                return true;
+            module:log("debug", "[LOBBY_CHECK] is_moderator = %s", tostring(is_moderator));
+        
+            if not is_moderator then
+                module:log("debug", "[LOBBY_CHECK] User is not moderator, checking password...");
+        
+                if not password then
+                    module:log("debug", "[LOBBY_CHECK] No password provided by user: %s", invitee);
+                end
+        
+                if not password_room then
+                    password_room = "#H@F*OIEUWNKJASD";
+                    module:log("debug", "[LOBBY_CHECK] Room has no password, using default: %s", password_room);
+                end
+        
+                if password ~= password_room then
+                    module:log("warn", "[LOBBY_CHECK] Incorrect password from %s: '%s' (expected: '%s')",
+                        invitee, tostring(password), tostring(password_room));
+        
+                    local reply = st.error_reply(stanza, 'auth', 'not-authorized');
+                    reply.tags[1].attr.code = '403';
+                    reply:tag('wrong-password', { xmlns = 'http://jitsi.org/jitmeet' }):up():up();
+                    event.origin.send(reply:tag('x', { xmlns = MUC_NS }));
+                    return true;
+                else
+                    module:log("info", "[LOBBY_CHECK] Password matched for non-moderator %s", invitee);
+                end
             end
+        else
+            module:log("debug", "[LOBBY_CHECK] No auth_token present for session");
         end
-
     end, -4); -- listens for invites for participants to join the main room
 
     host_module:hook('muc-invite', function(event)
