@@ -564,15 +564,14 @@ process_host_module(main_muc_component_config, function(host_module, host)
             password_room = "#H@F*OIEUWNKJASD";
             module:log("debug", "[LOBBY_CHECK] set def room password default: %s", tostring(password_room));
         end
-        
-        module:log("debug", "[LOBBY_CHECK] room password: %s", tostring(password_room));
-        module:log("debug", "[LOBBY_CHECK] user-provided password: %s", tostring(password));
-        
+
+        room._data.password_verified = room._data.password_verified or {};
+
         if password and password == password_room then
             whitelistJoin = true;
+            room._data.password_verified[invitee_bare_jid] = true;
             module:log("debug", "[LOBBY_CHECK] password match: access granted");
         elseif password then
-            -- Неверный пароль, возвращаем ошибку
             module:log("warn", "[LOBBY_CHECK] incorrect password from %s: %s", invitee, tostring(password));
             local reply = st.error_reply(stanza, 'auth', 'not-authorized');
             reply.tags[1].attr.code = '403';
@@ -580,10 +579,11 @@ process_host_module(main_muc_component_config, function(host_module, host)
             event.origin.send(reply:tag('x', { xmlns = MUC_NS }));
             return true;
         end
-        
+
+        local affiliation = room:get_affiliation(invitee);
+        module:log("debug", "[LOBBY_CHECK] current affiliation: %s", tostring(affiliation));
+
         if whitelistJoin then
-            local affiliation = room:get_affiliation(invitee);
-            module:log("debug", "[LOBBY_CHECK] current affiliation: %s", tostring(affiliation));
             if not affiliation or affiliation == 'none' or affiliation == 'member' then
                 occupant.role = 'participant';
                 room:set_affiliation(true, invitee_bare_jid, 'member');
@@ -592,9 +592,14 @@ process_host_module(main_muc_component_config, function(host_module, host)
                 return;
             end
         elseif password_room then
-            local affiliation = room:get_affiliation(invitee);
-            module:log("debug", "[LOBBY_CHECK] checking password autofill for %s with affiliation: %s", invitee, tostring(affiliation));
-            if affiliation == 'member' and not password then
+            if affiliation == 'member' and not room._data.password_verified[invitee_bare_jid] then
+                module:log("warn", "[LOBBY_CHECK] member %s tried to bypass without verified password", invitee);
+                local reply = st.error_reply(stanza, 'auth', 'not-authorized');
+                reply.tags[1].attr.code = '403';
+                reply:tag('password-required', { xmlns = 'http://jitsi.org/jitmeet' }):up():up();
+                event.origin.send(reply:tag('x', { xmlns = MUC_NS }));
+                return true;
+            elseif affiliation == 'member' and not password then
                 join:tag('password', { xmlns = MUC_NS }):text(password_room);
                 module:log("debug", "[LOBBY_CHECK] password autofilled for %s", invitee);
             end
@@ -612,16 +617,10 @@ process_host_module(main_muc_component_config, function(host_module, host)
             return true;
         end
 
-        local invitee = stanza.attr.from;
-        local invitee_bare_jid = jid_bare(invitee);
-
-        local affiliation = room:get_affiliation(invitee);
         module:log("debug", "[LOBBY_CHECK] final affiliation check: %s", tostring(affiliation));
 
         if not affiliation or affiliation == 'none' then
             module:log("info", "[LOBBY_CHECK] access denied, sending to lobby: %s", invitee);
-
-            -- отправка уведомления модератору
             local display_name = stanza:get_child_text('nick', 'http://jabber.org/protocol/nick') or "";
             notify_lobby_access(room, invitee, invitee_bare_jid, display_name, false);
             module:log("info", "[LOBBY_CHECK] NOTIFY_LOBBY_ACCESS_DENIED: jid=%s nick=%s display=%s",
@@ -632,9 +631,8 @@ process_host_module(main_muc_component_config, function(host_module, host)
             if room._data.lobby_extra_reason then
                 reply:tag(room._data.lobby_extra_reason, { xmlns = 'http://jitsi.org/jitmeet' }):up();
             end
-            reply:tag('lobbyroom', { xmlns = 'http://jitsi.org/jitmeet' }):text(room._data.lobbyroom):up():up();
-            reply:tag('lobbyroom'):text(room._data.lobbyroom):up();
-            event.origin.send(reply:tag('x', {xmlns = MUC_NS}));
+            reply:tag('lobbyroom', { xmlns = 'http://jitsi.org/jitmeet' }):text(room._data.lobbyroom):up();
+            event.origin.send(reply:tag('x', { xmlns = MUC_NS }));
             return true;
         end
     end, -4); -- listens for invites for participants to join the main room
