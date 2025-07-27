@@ -1,57 +1,77 @@
-local random = require "util.random";
+-- mod_lobby_autostart_password.lua
 
-module:hook("create-persistent-lobby-room", function(event)
-    local TAG = "[LOBBY_AUTOSTART] ";
-    local main_room = event.room;
+local util = module:require "util"
+local random = require "util.random"
+local timer = require "util.timer"
 
-    if not main_room then
-        module:log("error", TAG .. "main_room is nil in create-persistent-lobby-room event");
-        return;
+local is_healthcheck_room = util.is_healthcheck_room
+local TAG = "[LOBBY_AUTOSTART] "
+
+module:log("info", TAG .. "Loaded module: auto-lobby + random password")
+
+module:hook("muc-room-pre-create", function (event)
+    local room = event.room
+    if not room then
+        module:log("error", TAG .. "room is nil in muc-room-pre-create")
+        return
     end
 
-    module:log("info", TAG .. "Triggered for room: %s", tostring(main_room.jid));
-
-    if not main_room._data then
-        module:log("error", TAG .. "main_room._data is nil");
-        return;
+    local jid = room.jid
+    if is_healthcheck_room(jid) then
+        module:log("debug", TAG .. "Skipping healthcheck room: %s", jid)
+        return
     end
 
-    if not main_room._data.lobbyroom then
-        module:log("warn", TAG .. "main_room._data.lobbyroom is nil — lobby might not be attached yet");
-        return;
+    module:log("info", TAG .. "Creating room with lobby: %s", jid)
+
+    prosody.events.fire_event("create-persistent-lobby-room", { room = room })
+
+    -- Функция с повторной проверкой
+    local attempts = 0
+    local max_attempts = 50
+    local delay = 0.2
+
+    local function try_set_password()
+        attempts = attempts + 1
+        local lobby_jid = room._data and room._data.lobbyroom
+        if not lobby_jid then
+            module:log("debug", TAG .. "Attempt %d: lobbyroom still missing for %s", attempts, jid)
+        else
+            local lobby_host = module:get_option_string("lobby_muc")
+            if not lobby_host then
+                module:log("error", TAG .. "lobby_muc option not defined")
+                return
+            end
+
+            local lobby_module = module:get_host_module(lobby_host)
+            if not lobby_module then
+                module:log("error", TAG .. "Cannot get host module for %s", lobby_host)
+                return
+            end
+
+            local lobby_service = lobby_module:get_module("muc")
+            if not lobby_service then
+                module:log("error", TAG .. "Cannot get muc module for %s", lobby_host)
+                return
+            end
+
+            local lobby_room = lobby_service.get_room_from_jid(lobby_jid)
+            if lobby_room then
+                local password = random.hex(6)
+                lobby_room:set_password(password)
+                module:log("info", TAG .. "Set random password '%s' for lobby room: %s", password, lobby_jid)
+                return  -- успешно, выходим
+            else
+                module:log("debug", TAG .. "Attempt %d: lobby room object not yet found: %s", attempts, lobby_jid)
+            end
+        end
+
+        if attempts < max_attempts then
+            return delay  -- повторить через delay секунд
+        else
+            module:log("error", TAG .. "Timeout waiting for lobby room for %s", jid)
+        end
     end
 
-    local lobby_jid = main_room._data.lobbyroom;
-    module:log("info", TAG .. "Detected lobby JID: %s", tostring(lobby_jid));
-
-    local lobby_muc_host = module:get_option_string("lobby_muc");
-    if not lobby_muc_host then
-        module:log("error", TAG .. "lobby_muc config not set");
-        return;
-    end
-
-    local lobby_module = module:get_host_module(lobby_muc_host);
-    if not lobby_module then
-        module:log("error", TAG .. "Cannot get host module for lobby_muc: %s", lobby_muc_host);
-        return;
-    end
-
-    local lobby_service = lobby_module:get_module("muc");
-    if not lobby_service then
-        module:log("error", TAG .. "Cannot get muc module from lobby host: %s", lobby_muc_host);
-        return;
-    end
-
-    local lobby_room = lobby_service.get_room_from_jid(lobby_jid);
-    if not lobby_room then
-        module:log("error", TAG .. "Lobby room object not found by JID: %s", tostring(lobby_jid));
-        return;
-    end
-
-    module:log("info", TAG .. "Lobby room found: %s", lobby_jid);
-
-    local password = random.hex(6);
-    lobby_room:set_password(password);
-
-    module:log("info", TAG .. "Random password '%s' set for lobby room: %s", password, lobby_jid);
-end);
+    timer.add_task(delay, try_set_password)
+end)
