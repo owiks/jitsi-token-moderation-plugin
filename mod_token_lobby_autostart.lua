@@ -1,21 +1,28 @@
--- This module auto-activates lobby for all rooms.
---
--- IMPORTANT: do not use this unless you have some mechanism for moderators to bypass the lobby, otherwise everybody
---            stops at the lobby with nobody to admit them.
---
--- This module should be added to the main muc component.
---
+local random = require "util.random";
 
-local util = module:require "util";
-local is_healthcheck_room = util.is_healthcheck_room;
+module:hook("create-persistent-lobby-room", function(event)
+    local main_room = event.room;
+    if not main_room then return end
 
+    -- Проверка: лобби уже создано
+    if not main_room._data.lobbyroom then return end
 
-module:hook("muc-room-pre-create", function (event)
-   local room = event.room;
-
-    if is_healthcheck_room(room.jid) then
+    local lobby_jid = main_room._data.lobbyroom;
+    local lobby_service = module:get_host_module(module:get_option_string("lobby_muc")):get_module("muc");
+    if not lobby_service then
+        module:log("error", "Cannot find lobby muc service");
         return;
     end
 
-    prosody.events.fire_event("create-persistent-lobby-room", { room = room; });
+    local lobby_room = lobby_service.get_room_from_jid(lobby_jid);
+    if not lobby_room then
+        module:log("warn", "Lobby room not found for %s", tostring(lobby_jid));
+        return;
+    end
+
+    -- Генерируем случайный пароль и применяем
+    local password = random.hex(6);  -- длина 6 символов (можно изменить)
+    lobby_room:set_password(password);
+
+    module:log("info", "[LOBBY_AUTOSTART] Set random password '%s' for lobby room %s", password, lobby_jid);
 end);
