@@ -624,18 +624,19 @@ process_host_module(main_muc_component_config, function(host_module, host)
             return true;
         end
 
-        if password_room == nil then
-            password_room = "#H@F*OIEUWNKJASD"
-            module:log("debug", "[LOBBY_CHECK] set def room password default: %s", tostring(password_room));
-        end
-
-        if not password or password ~= password_room then
-            module:log("warn", "[LOBBY_CHECK] incorrect password from %s: %s", invitee, tostring(password));
-            local reply = st.error_reply(stanza, 'auth', 'not-authorized');
-            reply.tags[1].attr.code = '403';
-            reply:tag('wrong-password', { xmlns = 'http://jitsi.org/jitmeet' }):up():up();
-            event.origin.send(reply:tag('x', { xmlns = MUC_NS }));
-            return true;
+        if not password then
+            if password_room == nil then
+                password_room = "#H@F*OIEUWNKJASD"
+                module:log("debug", "[LOBBY_CHECK] set def room password default: %s", tostring(password_room));
+            end
+            if password ~= password_room then
+                module:log("warn", "[LOBBY_CHECK] incorrect password from %s: %s", invitee, tostring(password));
+                local reply = st.error_reply(stanza, 'auth', 'not-authorized');
+                reply.tags[1].attr.code = '403';
+                reply:tag('wrong-password', { xmlns = 'http://jitsi.org/jitmeet' }):up():up();
+                event.origin.send(reply:tag('x', { xmlns = MUC_NS }));
+                return true;
+            end
         end
 
     end, -4); -- listens for invites for participants to join the main room
