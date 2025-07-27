@@ -560,9 +560,16 @@ process_host_module(main_muc_component_config, function(host_module, host)
         module:log("debug", "[LOBBY_CHECK] user-provided password: %s", tostring(password));
         module:log("debug", "[LOBBY_CHECK] room password: %s", tostring(room:get_password()));
 
-        if password and room:get_password() and password == room:get_password() then
+        local password_room = room:get_password();
+        module:log("debug", "[LOBBY_CHECK] room password: %s", tostring(password_room));
+
+        if password and password_room and password == password_room then
             whitelistJoin = true;
             module:log("debug", "[LOBBY_CHECK] password match: access granted");
+        end
+
+        if room:get_password() == nil then
+            password = "#H@F*OIEUWNKJASD"
         end
 
         if whitelistJoin then
@@ -579,7 +586,7 @@ process_host_module(main_muc_component_config, function(host_module, host)
             local affiliation = room:get_affiliation(invitee);
             module:log("debug", "[LOBBY_CHECK] checking password autofill for %s with affiliation: %s", invitee, tostring(affiliation));
             if affiliation == 'member' and not password then
-                join:tag('password', { xmlns = MUC_NS }):text(room:get_password());
+                join:tag('password', { xmlns = MUC_NS }):text(password_room);
                 module:log("debug", "[LOBBY_CHECK] password autofilled for %s", invitee);
             end
         end
@@ -596,11 +603,21 @@ process_host_module(main_muc_component_config, function(host_module, host)
             return true;
         end
 
+        local invitee = stanza.attr.from;
+        local invitee_bare_jid = jid_bare(invitee);
+
         local affiliation = room:get_affiliation(invitee);
         module:log("debug", "[LOBBY_CHECK] final affiliation check: %s", tostring(affiliation));
 
         if not affiliation or affiliation == 'none' then
             module:log("info", "[LOBBY_CHECK] access denied, sending to lobby: %s", invitee);
+
+            -- отправка уведомления модератору
+            local display_name = stanza:get_child_text('nick', 'http://jabber.org/protocol/nick') or "";
+            notify_lobby_access(room, invitee, invitee_bare_jid, display_name, false);
+            module:log("info", "[LOBBY_CHECK] NOTIFY_LOBBY_ACCESS_DENIED: jid=%s nick=%s display=%s",
+                tostring(invitee), tostring(occupant.nick), display_name);
+
             local reply = st.error_reply(stanza, 'auth', 'registration-required');
             reply.tags[1].attr.code = '407';
             if room._data.lobby_extra_reason then
