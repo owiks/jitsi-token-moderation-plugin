@@ -41,11 +41,14 @@ module:hook("muc-occupant-pre-join", function (event)
     module:log(LOGLEVEL, "[LOBBY_BYPASS] occupant.bare_jid: %s", tostring(occupant.bare_jid))
     module:log(LOGLEVEL, "[LOBBY_BYPASS] room.jid: %s", tostring(room.jid))
 
-    if is_admin(occupant.bare_jid) or is_healthcheck_room(room.jid) then
-        module:log(LOGLEVEL, "[LOBBY_BYPASS] is admin or healthcheck: skip")
+    if is_healthcheck_room(room.jid) then
         return
     end
-
+    
+    local is_admin_user = is_admin(occupant.bare_jid)
+    if is_admin_user then
+        module:log(LOGLEVEL, "[LOBBY_BYPASS] occupant is admin: %s", occupant.bare_jid)
+    end
     if room._data.initiator_joined then
         module:log(LOGLEVEL, "[LOBBY_BYPASS] Initiator already joined: %s", tostring(room.jid))
         return
