@@ -54,7 +54,7 @@ this_module:hook("muc-room-pre-create", function (event)
 
             local lobby_room = muc_module.get_room_from_jid(lobby_jid)
             if lobby_room then
-                lobby_room:set_password(FIXED_PASSWORD)
+                -- lobby_room:set_password(FIXED_PASSWORD)
                 this_module:log("info", TAG .. "Set fixed password '%s' for lobby room: %s", FIXED_PASSWORD, lobby_jid)
                 return
             else
