@@ -560,27 +560,27 @@ process_host_module(main_muc_component_config, function(host_module, host)
         module:log("debug", "[LOBBY_CHECK] user-provided password: %s", tostring(password));
 
         local password_room = room:get_password();
-        module:log("debug", "[LOBBY_CHECK] room password: %s", tostring(password_room));
+        if not password_room then
+            password_room = "#H@F*OIEUWNKJASD";
+            module:log("debug", "[LOBBY_CHECK] set def room password default: %s", tostring(password_room));
+        end
         
-        if password and password_room and password ~= password_room then
-            module:log("warn", "[LOBBY_CHECK] incorrect password for %s (provided: %s, expected: %s)", invitee, tostring(password), tostring(password_room));
+        module:log("debug", "[LOBBY_CHECK] room password: %s", tostring(password_room));
+        module:log("debug", "[LOBBY_CHECK] user-provided password: %s", tostring(password));
+        
+        if password and password == password_room then
+            whitelistJoin = true;
+            module:log("debug", "[LOBBY_CHECK] password match: access granted");
+        elseif password then
+            -- Неверный пароль, возвращаем ошибку
+            module:log("warn", "[LOBBY_CHECK] incorrect password from %s: %s", invitee, tostring(password));
             local reply = st.error_reply(stanza, 'auth', 'not-authorized');
             reply.tags[1].attr.code = '403';
             reply:tag('wrong-password', { xmlns = 'http://jitsi.org/jitmeet' }):up():up();
             event.origin.send(reply:tag('x', { xmlns = MUC_NS }));
             return true;
-        end   
+        end
         
-        if password and password_room and password == password_room then
-            whitelistJoin = true;
-            module:log("debug", "[LOBBY_CHECK] password match: access granted");
-        end
-
-        if password_room == nil then
-            password_room = "#H@F*OIEUWNKJASD"
-            module:log("debug", "[LOBBY_CHECK] set def room password default: %s", tostring(password_room));
-        end
-
         if whitelistJoin then
             local affiliation = room:get_affiliation(invitee);
             module:log("debug", "[LOBBY_CHECK] current affiliation: %s", tostring(affiliation));
