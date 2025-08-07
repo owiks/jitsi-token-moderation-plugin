@@ -67,8 +67,11 @@ function setupAffiliation(room, origin, stanza)
     end
 
     local jid = jid_bare(stanza.attr.from);
-    local moderator = body["moderator"];
-
+    local moderator_value = (body.context and body.context.user and body.context.user.moderator);
+    log("warn", "Body: %s", tostring(body));
+    log("warn", "ModeratorValue %s", tostring(moderator_value));
+    local moderator_flag = (moderator_value == true);
+    
     if moderator == true or is_admin(jid) then
         room:set_affiliation("token_plugin", jid, "owner");
     else
