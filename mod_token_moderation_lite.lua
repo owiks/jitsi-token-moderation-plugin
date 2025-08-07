@@ -72,7 +72,7 @@ function setupAffiliation(room, origin, stanza)
     log("warn", "ModeratorValue %s", tostring(moderator_value));
     local moderator_flag = (moderator_value == true);
     
-    if moderator == true or is_admin(jid) then
+    if moderator_flag == true or is_admin(jid) then
         room:set_affiliation("token_plugin", jid, "owner");
     else
         room:set_affiliation("token_plugin", jid, "member");
